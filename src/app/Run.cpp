@@ -36,6 +36,13 @@ struct Point2 {
   double y{0.0};
 };
 
+Point2 sensorPointFromPose(const Pose& pose, double sensorBaseMm) {
+  return Point2{
+      pose.xMm + sensorBaseMm * std::cos(pose.thetaRad),
+      pose.yMm + sensorBaseMm * std::sin(pose.thetaRad),
+  };
+}
+
 struct CourseCandidate {
   Point2 point{};
   Point2 tangent{};
@@ -231,9 +238,9 @@ void Run::updateBattery() {
 }
 
 void Run::updateSensors() {
-  constexpr double kLineSensorLongitudinalWindowMm = 12.0;
+  const double lineWindowMm = std::max(params.lineSensorLongitudinalWindowMm, 1.0);
   const CourseRelativePose rel = computeLineRelativePose();
-  if (std::abs(rel.longitudinalMm) > kLineSensorLongitudinalWindowMm) {
+  if (std::abs(rel.longitudinalMm) > lineWindowMm) {
     lineReading = lineSensor.read(1e6);
     lineAscii = lineSensor.renderLineAscii(1e6);
     return;
@@ -277,7 +284,7 @@ Run::CourseRelativePose Run::computeLineRelativePose() const {
   const double radiusMm = std::max(params.courseCurveRadiusMm, 1.0);
   const double halfStraightMm = straightLengthMm * 0.5;
 
-  const Point2 p{state.pose.xMm, state.pose.yMm};
+  const Point2 p = sensorPointFromPose(state.pose, params.sensorBaseMm);
   const Point2 lowerA{-halfStraightMm, 0.0};
   const Point2 lowerB{halfStraightMm, 0.0};
   const Point2 upperA{halfStraightMm, 2.0 * radiusMm};
@@ -451,6 +458,11 @@ void Run::publishTelemetry() {
   msg << "\"y\":" << state.pose.yMm << ',';
   msg << "\"theta\":" << state.pose.thetaRad;
   msg << "},";
+  const Point2 sensorPose = sensorPointFromPose(state.pose, params.sensorBaseMm);
+  msg << "\"poseSensor\":{";
+  msg << "\"x\":" << sensorPose.x << ',';
+  msg << "\"y\":" << sensorPose.y;
+  msg << "},";
   msg << "\"course\":{";
   msg << "\"straightLength\":" << params.courseStraightLengthMm << ',';
   msg << "\"curveRadius\":" << params.courseCurveRadiusMm;
@@ -461,6 +473,7 @@ void Run::publishTelemetry() {
   msg << "\"desired_velocity_mm_s\":" << params.desiredVelocityMmS << ',';
   msg << "\"control_cycle_s\":" << dtS << ',';
   msg << "\"wheel_tread_mm\":" << params.wheelTreadMm << ',';
+  msg << "\"sensor_base_mm\":" << params.sensorBaseMm << ',';
   msg << "\"course_straight_length_mm\":" << params.courseStraightLengthMm << ',';
   msg << "\"course_curve_radius_mm\":" << params.courseCurveRadiusMm << ',';
   msg << "\"white_line_offset_mm\":" << params.whiteLineOffsetMm << ',';
@@ -493,6 +506,8 @@ void Run::renderConsole() const {
   std::cout << "Motor V L/R [V]      : " << state.vmotLV << " / " << state.vmotRV << '\n';
   std::cout << "Motor I L/R [A]      : " << state.iLA << " / " << state.iRA << '\n';
   std::cout << "Pose x,y [mm]        : " << state.pose.xMm << ", " << state.pose.yMm << '\n';
+  const Point2 sensorPose = sensorPointFromPose(state.pose, params.sensorBaseMm);
+  std::cout << "Sensor x,y [mm]      : " << sensorPose.x << ", " << sensorPose.y << '\n';
   std::cout << "Pose theta [rad]     : " << state.pose.thetaRad << '\n';
   std::cout << "Wheel v L/R [mm/s]   : " << state.vLMmS << " / " << state.vRMmS << '\n';
   std::cout << "PWM Duty L/R         : " << state.dutyL << " / " << state.dutyR << '\n';

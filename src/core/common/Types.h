@@ -35,6 +35,7 @@ struct SimParams {
   double gearWheel{64.0};
   double massG{125.0};
   double wheelTreadMm{98.0};
+  double sensorBaseMm{115.0};
   double desiredVelocityMmS{1000.0};
   double simDurationS{10.0};
   double controlCycleS{0.01};

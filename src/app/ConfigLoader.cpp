@@ -23,6 +23,7 @@ bool assignParam(SimParams& p, const std::string& key, double val) {
   else if (key == "gear_wheel") p.gearWheel = val;
   else if (key == "mass_g") p.massG = val;
   else if (key == "wheel_tread_mm") p.wheelTreadMm = val;
+  else if (key == "sensor_base_mm") p.sensorBaseMm = val;
   else if (key == "desired_velocity_mm_s") p.desiredVelocityMmS = val;
   else if (key == "sim_duration_s") p.simDurationS = val;
   else if (key == "control_cycle_s") p.controlCycleS = val;

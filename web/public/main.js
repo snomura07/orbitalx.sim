@@ -221,11 +221,33 @@ function drawPoseChart(windowSec) {
   });
   poseCtx.stroke();
 
+  if (data.some((d) => d.poseSensor)) {
+    poseCtx.strokeStyle = "#f97316";
+    poseCtx.lineWidth = 1.6;
+    poseCtx.beginPath();
+    data.forEach((d, i) => {
+      const sx = Number(d.poseSensor?.x ?? d.pose.x);
+      const sy = Number(d.poseSensor?.y ?? d.pose.y);
+      const x = xOf(sx);
+      const y = yOf(sy);
+      if (i === 0) poseCtx.moveTo(x, y);
+      else poseCtx.lineTo(x, y);
+    });
+    poseCtx.stroke();
+  }
+
   const last = data[data.length - 1];
   poseCtx.fillStyle = "#f97316";
   poseCtx.beginPath();
   poseCtx.arc(xOf(last.pose.x), yOf(last.pose.y), 4, 0, Math.PI * 2);
   poseCtx.fill();
+
+  if (last.poseSensor) {
+    poseCtx.fillStyle = "#0ea5e9";
+    poseCtx.beginPath();
+    poseCtx.arc(xOf(last.poseSensor.x), yOf(last.poseSensor.y), 3.5, 0, Math.PI * 2);
+    poseCtx.fill();
+  }
 }
 
 function drawOmegaChart(windowSec) {
