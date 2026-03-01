@@ -92,6 +92,35 @@ body {
   background: #fcfdff;
 }
 
+#poseChart {
+  width: 100%;
+  max-width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fcfdff;
+}
+
+.pose-range {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(120px, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.pose-range label {
+  font-size: 12px;
+  color: var(--muted);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.pose-range input {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
 .line-bars {
   display: grid;
   grid-template-columns: repeat(15, 1fr);
@@ -105,4 +134,3 @@ body {
   border-radius: 4px 4px 0 0;
   min-height: 2px;
 }
-

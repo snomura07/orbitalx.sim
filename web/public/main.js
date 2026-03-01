@@ -9,10 +9,16 @@ const lineDetected = document.getElementById("lineDetected");
 const poseX = document.getElementById("poseX");
 const poseY = document.getElementById("poseY");
 const poseTheta = document.getElementById("poseTheta");
+const xMinInput = document.getElementById("xMin");
+const xMaxInput = document.getElementById("xMax");
+const yMinInput = document.getElementById("yMin");
+const yMaxInput = document.getElementById("yMax");
 const lineBars = document.getElementById("lineBars");
 const windowSecSelect = document.getElementById("windowSec");
 const velocityCanvas = document.getElementById("velocityChart");
 const ctx = velocityCanvas.getContext("2d");
+const poseCanvas = document.getElementById("poseChart");
+const poseCtx = poseCanvas.getContext("2d");
 
 const wsProto = location.protocol === "https:" ? "wss" : "ws";
 const ws = new WebSocket(`${wsProto}://${location.host}/ws`);
@@ -77,6 +83,66 @@ function drawVelocityChart(windowSec) {
   ctx.stroke();
 }
 
+function drawPoseChart(windowSec) {
+  const now = history.length ? history[history.length - 1].ts : 0;
+  const startTs = now - windowSec;
+  const data = history.filter((d) => d.ts >= startTs);
+
+  poseCtx.clearRect(0, 0, poseCanvas.width, poseCanvas.height);
+  poseCtx.fillStyle = "#f7fafc";
+  poseCtx.fillRect(0, 0, poseCanvas.width, poseCanvas.height);
+
+  if (data.length < 2) {
+    return;
+  }
+
+  const xMin = Number(xMinInput.value);
+  const xMax = Number(xMaxInput.value);
+  const yMin = Number(yMinInput.value);
+  const yMax = Number(yMaxInput.value);
+  if (!(xMax > xMin) || !(yMax > yMin)) {
+    return;
+  }
+
+  const pad = 28;
+  const w = poseCanvas.width - pad * 2;
+  const h = poseCanvas.height - pad * 2;
+  const xOf = (x) => pad + ((x - xMin) / (xMax - xMin)) * w;
+  const yOf = (y) => pad + h - ((y - yMin) / (yMax - yMin)) * h;
+
+  poseCtx.strokeStyle = "#e5e7eb";
+  poseCtx.lineWidth = 1;
+  for (let i = 0; i <= 4; i += 1) {
+    const x = pad + (w / 4) * i;
+    const y = pad + (h / 4) * i;
+    poseCtx.beginPath();
+    poseCtx.moveTo(x, pad);
+    poseCtx.lineTo(x, pad + h);
+    poseCtx.stroke();
+    poseCtx.beginPath();
+    poseCtx.moveTo(pad, y);
+    poseCtx.lineTo(pad + h + (w - h), y);
+    poseCtx.stroke();
+  }
+
+  poseCtx.strokeStyle = "#155e75";
+  poseCtx.lineWidth = 2;
+  poseCtx.beginPath();
+  data.forEach((d, i) => {
+    const x = xOf(d.pose.x);
+    const y = yOf(d.pose.y);
+    if (i === 0) poseCtx.moveTo(x, y);
+    else poseCtx.lineTo(x, y);
+  });
+  poseCtx.stroke();
+
+  const last = data[data.length - 1];
+  poseCtx.fillStyle = "#f97316";
+  poseCtx.beginPath();
+  poseCtx.arc(xOf(last.pose.x), yOf(last.pose.y), 4, 0, Math.PI * 2);
+  poseCtx.fill();
+}
+
 function render(data) {
   velocityValue.textContent = `${data.velocity.toFixed(1)} mm/s`;
   desiredVelocityValue.textContent = `${data.desiredVelocity.toFixed(1)} mm/s`;
@@ -94,10 +160,18 @@ function render(data) {
   });
 
   drawVelocityChart(Number(windowSecSelect.value));
+  drawPoseChart(Number(windowSecSelect.value));
 }
 
 windowSecSelect.addEventListener("change", () => {
   drawVelocityChart(Number(windowSecSelect.value));
+  drawPoseChart(Number(windowSecSelect.value));
+});
+
+[xMinInput, xMaxInput, yMinInput, yMaxInput].forEach((el) => {
+  el.addEventListener("change", () => {
+    drawPoseChart(Number(windowSecSelect.value));
+  });
 });
 
 ws.addEventListener("message", (ev) => {
@@ -109,4 +183,3 @@ ws.addEventListener("message", (ev) => {
   }
   render(msg);
 });
-
