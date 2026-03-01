@@ -6,6 +6,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 add_executable(orbitalx_sim
+  src/app/ConfigLoader.cpp
+  src/app/Run.cpp
   src/app/main.cpp
   src/core/plant/battery/Battery.cpp
   src/core/plant/motor/Motor.cpp
