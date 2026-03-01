@@ -27,6 +27,12 @@ const batteryCanvas = document.getElementById("batteryChart");
 const batteryCtx = batteryCanvas.getContext("2d");
 const poseCanvas = document.getElementById("poseChart");
 const poseCtx = poseCanvas.getContext("2d");
+const vehicleSprite = new Image();
+let vehicleSpriteReady = false;
+vehicleSprite.onload = () => {
+  vehicleSpriteReady = true;
+};
+vehicleSprite.src = "/orbitalx.png";
 
 const wsProto = location.protocol === "https:" ? "wss" : "ws";
 const ws = new WebSocket(`${wsProto}://${location.host}/ws`);
@@ -137,6 +143,9 @@ function drawPoseChart(windowSec) {
   const h = poseCanvas.height - pad.top - pad.bottom;
   const xOf = (x) => pad.left + ((x - xMin) / (xMax - xMin)) * w;
   const yOf = (y) => pad.top + h - ((y - yMin) / (yMax - yMin)) * h;
+  const pxPerMmX = w / (xMax - xMin);
+  const pxPerMmY = h / (yMax - yMin);
+  const pxPerMm = Math.min(pxPerMmX, pxPerMmY);
 
   poseCtx.font = "11px IBM Plex Sans, sans-serif";
   poseCtx.fillStyle = "#6b7280";
@@ -247,6 +256,26 @@ function drawPoseChart(windowSec) {
     poseCtx.beginPath();
     poseCtx.arc(xOf(last.poseSensor.x), yOf(last.poseSensor.y), 3.5, 0, Math.PI * 2);
     poseCtx.fill();
+  }
+
+  if (vehicleSpriteReady && last?.pose) {
+    const sensorBaseMm = Number(last?.params?.sensor_base_mm ?? 115);
+    const wheelTreadMm = Number(last?.params?.wheel_tread_mm ?? 98);
+    const vehicleLengthMm = sensorBaseMm + 70;
+    const vehicleWidthMm = wheelTreadMm + 40;
+    const displayScale = 2.8;
+    const spriteW = Math.max(vehicleLengthMm * pxPerMm * displayScale, 42);
+    const spriteH = Math.max(vehicleWidthMm * pxPerMm * displayScale, 22);
+    const cx = xOf(last.pose.x);
+    const cy = yOf(last.pose.y);
+    const headingRad = -Number(last.pose.theta ?? 0) + Math.PI;
+    poseCtx.save();
+    poseCtx.translate(cx, cy);
+    poseCtx.rotate(headingRad);
+    poseCtx.globalAlpha = 0.95;
+    poseCtx.drawImage(vehicleSprite, -spriteW * 0.5, -spriteH * 0.5, spriteW, spriteH);
+    poseCtx.globalAlpha = 1.0;
+    poseCtx.restore();
   }
 }
 
