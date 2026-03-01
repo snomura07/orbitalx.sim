@@ -47,7 +47,7 @@ body {
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
   gap: 14px;
   padding: 14px;
 }
@@ -84,7 +84,10 @@ body {
   margin-top: 2px;
 }
 
-#velocityChart {
+#velocityChart,
+#omegaChart,
+#batteryChart,
+#poseChart {
   width: 100%;
   max-width: 100%;
   border: 1px solid var(--border);
@@ -93,11 +96,24 @@ body {
 }
 
 #poseChart {
-  width: 100%;
-  max-width: 100%;
+  min-height: 260px;
+}
+
+.params-card {
+  grid-column: 1 / -1;
+}
+
+#paramsView {
+  margin: 0;
+  padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: #fcfdff;
+  background: #f8fafc;
+  font-family: "IBM Plex Mono", "Cascadia Mono", monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #334155;
+  white-space: pre-wrap;
 }
 
 .pose-range {

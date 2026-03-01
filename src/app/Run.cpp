@@ -420,9 +420,11 @@ void Run::publishTelemetry() {
   msg << '{';
   msg << "\"ts\":" << elapsedS << ',';
   msg << "\"velocity\":" << state.vMmS << ',';
+  msg << "\"omega\":" << state.omegaRadS << ',';
   msg << "\"desiredVelocity\":" << cpu.desiredVelocityMmS() << ',';
   msg << "\"desiredVelocityInput\":" << params.desiredVelocityMmS << ',';
   msg << "\"batterySoc\":" << batterySensor.readSocPercent() << ',';
+  msg << "\"batteryV\":" << state.vbatV << ',';
   msg << "\"lineDetected\":" << (lineReading.detected ? "true" : "false") << ',';
   msg << "\"xHat\":" << (lineReading.detected ? lineReading.xHatMm : 0.0) << ',';
   msg << "\"lineError\":" << state.lateralErrorMm << ',';
@@ -450,6 +452,25 @@ void Run::publishTelemetry() {
   msg << "\"course\":{";
   msg << "\"straightLength\":" << params.courseStraightLengthMm << ',';
   msg << "\"curveRadius\":" << params.courseCurveRadiusMm;
+  msg << "},";
+  msg << "\"params\":{";
+  msg << "\"vehicle_max_velocity_mm_s\":" << params.vehicleMaxVelocityMmS << ',';
+  msg << "\"acceleration_mm_ss\":" << params.accelerationMmSS << ',';
+  msg << "\"desired_velocity_mm_s\":" << params.desiredVelocityMmS << ',';
+  msg << "\"control_cycle_s\":" << dtS << ',';
+  msg << "\"wheel_tread_mm\":" << params.wheelTreadMm << ',';
+  msg << "\"course_straight_length_mm\":" << params.courseStraightLengthMm << ',';
+  msg << "\"course_curve_radius_mm\":" << params.courseCurveRadiusMm << ',';
+  msg << "\"white_line_offset_mm\":" << params.whiteLineOffsetMm << ',';
+  msg << "\"line_kp\":" << params.lineKp << ',';
+  msg << "\"line_ki\":" << params.lineKi << ',';
+  msg << "\"line_kd\":" << params.lineKd << ',';
+  msg << "\"speed_kp\":" << params.speedKp << ',';
+  msg << "\"speed_ki\":" << params.speedKi << ',';
+  msg << "\"pwm_max\":" << params.pwmMax << ',';
+  msg << "\"resist_F0_N\":" << params.resistF0N << ',';
+  msg << "\"resist_kv_N_per_mps\":" << params.resistKvNPerMps << ',';
+  msg << "\"resist_k2_N_per_mps2\":" << params.resistK2NPerMps2;
   msg << "}}";
   if (!wsClient.sendText(msg.str())) {
     wsClient.close();

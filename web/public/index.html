@@ -25,26 +25,20 @@
         <div class="metric-row">
           <div><span>Current</span><strong id="velocityValue">-</strong></div>
           <div><span>Desired</span><strong id="desiredVelocityValue">-</strong></div>
+          <div><span>Omega</span><strong id="omegaValue">-</strong></div>
         </div>
         <canvas id="velocityChart" width="520" height="220"></canvas>
+        <canvas id="omegaChart" width="520" height="180"></canvas>
       </section>
 
       <section class="card">
         <h2>Battery</h2>
         <div class="metric-row">
-          <div><span>SoC</span><strong id="batteryValue">-</strong></div>
+          <div><span>Vbat</span><strong id="batteryValue">-</strong></div>
           <div><span>Laps</span><strong id="lapCountValue">0</strong></div>
           <div><span>Total Dist</span><strong id="totalDistanceValue">0 mm</strong></div>
         </div>
-      </section>
-
-      <section class="card">
-        <h2>Line Detection</h2>
-        <div class="metric-row">
-          <div><span>x_hat</span><strong id="xhatValue">-</strong></div>
-          <div><span>Detected</span><strong id="lineDetected">-</strong></div>
-        </div>
-        <div id="lineBars" class="line-bars"></div>
+        <canvas id="batteryChart" width="520" height="220"></canvas>
       </section>
 
       <section class="card">
@@ -61,6 +55,20 @@
           <label>Y max <input id="yMax" type="number" value="1000" step="100" /></label>
         </div>
         <canvas id="poseChart" width="520" height="260"></canvas>
+      </section>
+
+      <section class="card">
+        <h2>Line Detection</h2>
+        <div class="metric-row">
+          <div><span>x_hat</span><strong id="xhatValue">-</strong></div>
+          <div><span>Detected</span><strong id="lineDetected">-</strong></div>
+        </div>
+        <div id="lineBars" class="line-bars"></div>
+      </section>
+
+      <section class="card params-card">
+        <h2>Parameters</h2>
+        <pre id="paramsView">-</pre>
       </section>
     </main>
     <script type="module" src="/main.js"></script>

@@ -3,9 +3,11 @@ const maxHistorySec = 120;
 
 const velocityValue = document.getElementById("velocityValue");
 const desiredVelocityValue = document.getElementById("desiredVelocityValue");
+const omegaValue = document.getElementById("omegaValue");
 const batteryValue = document.getElementById("batteryValue");
 const lapCountValue = document.getElementById("lapCountValue");
 const totalDistanceValue = document.getElementById("totalDistanceValue");
+const paramsView = document.getElementById("paramsView");
 const xhatValue = document.getElementById("xhatValue");
 const lineDetected = document.getElementById("lineDetected");
 const poseX = document.getElementById("poseX");
@@ -19,6 +21,10 @@ const lineBars = document.getElementById("lineBars");
 const windowSecSelect = document.getElementById("windowSec");
 const velocityCanvas = document.getElementById("velocityChart");
 const ctx = velocityCanvas.getContext("2d");
+const omegaCanvas = document.getElementById("omegaChart");
+const omegaCtx = omegaCanvas.getContext("2d");
+const batteryCanvas = document.getElementById("batteryChart");
+const batteryCtx = batteryCanvas.getContext("2d");
 const poseCanvas = document.getElementById("poseChart");
 const poseCtx = poseCanvas.getContext("2d");
 
@@ -222,15 +228,152 @@ function drawPoseChart(windowSec) {
   poseCtx.fill();
 }
 
+function drawOmegaChart(windowSec) {
+  const now = history.length ? history[history.length - 1].ts : 0;
+  const startTs = now - windowSec;
+  const data = history.filter((d) => d.ts >= startTs && d.ts <= now);
+
+  omegaCtx.clearRect(0, 0, omegaCanvas.width, omegaCanvas.height);
+  omegaCtx.fillStyle = "#f7fafc";
+  omegaCtx.fillRect(0, 0, omegaCanvas.width, omegaCanvas.height);
+
+  if (data.length < 2) {
+    return;
+  }
+
+  const omegaAbsMax = Math.max(...data.map((d) => Math.abs(Number(d.omega ?? 0))), 0.1);
+  const omegaRange = omegaAbsMax * 1.1;
+  const pad = { left: 56, right: 16, top: 16, bottom: 34 };
+  const w = omegaCanvas.width - pad.left - pad.right;
+  const h = omegaCanvas.height - pad.top - pad.bottom;
+  const xOf = (t) => pad.left + ((t - startTs) / windowSec) * w;
+  const yOf = (v) => pad.top + h - ((v + omegaRange) / (2 * omegaRange)) * h;
+
+  omegaCtx.font = "11px IBM Plex Sans, sans-serif";
+  omegaCtx.fillStyle = "#6b7280";
+  omegaCtx.textAlign = "right";
+  omegaCtx.textBaseline = "middle";
+  omegaCtx.strokeStyle = "#e5e7eb";
+  omegaCtx.lineWidth = 1;
+  for (let i = 0; i <= 4; i += 1) {
+    const y = pad.top + (h / 4) * i;
+    const tick = omegaRange - ((2 * omegaRange * i) / 4);
+    omegaCtx.beginPath();
+    omegaCtx.moveTo(pad.left, y);
+    omegaCtx.lineTo(pad.left + w, y);
+    omegaCtx.stroke();
+    omegaCtx.fillText(tick.toFixed(2), pad.left - 8, y);
+  }
+
+  omegaCtx.textAlign = "center";
+  omegaCtx.textBaseline = "top";
+  omegaCtx.fillText(startTs.toFixed(1), pad.left, pad.top + h + 6);
+  omegaCtx.fillText(now.toFixed(1), pad.left + w, pad.top + h + 6);
+  omegaCtx.fillText("Time [s]", pad.left + w * 0.5, omegaCanvas.height - 14);
+
+  omegaCtx.save();
+  omegaCtx.translate(16, pad.top + h * 0.5);
+  omegaCtx.rotate(-Math.PI / 2);
+  omegaCtx.textAlign = "center";
+  omegaCtx.textBaseline = "top";
+  omegaCtx.fillText("Omega [rad/s]", 0, 0);
+  omegaCtx.restore();
+
+  omegaCtx.lineWidth = 2;
+  omegaCtx.strokeStyle = "#7c3aed";
+  omegaCtx.beginPath();
+  data.forEach((d, i) => {
+    const x = xOf(d.ts);
+    const y = yOf(Number(d.omega ?? 0));
+    if (i === 0) omegaCtx.moveTo(x, y);
+    else omegaCtx.lineTo(x, y);
+  });
+  omegaCtx.stroke();
+}
+
+function drawBatteryChart(windowSec) {
+  const now = history.length ? history[history.length - 1].ts : 0;
+  const startTs = now - windowSec;
+  const data = history.filter((d) => d.ts >= startTs && d.ts <= now);
+
+  batteryCtx.clearRect(0, 0, batteryCanvas.width, batteryCanvas.height);
+  batteryCtx.fillStyle = "#f7fafc";
+  batteryCtx.fillRect(0, 0, batteryCanvas.width, batteryCanvas.height);
+
+  if (data.length < 2) {
+    return;
+  }
+
+  const yMin = 7.0;
+  const yMax = 8.5;
+
+  const pad = { left: 56, right: 16, top: 16, bottom: 34 };
+  const w = batteryCanvas.width - pad.left - pad.right;
+  const h = batteryCanvas.height - pad.top - pad.bottom;
+  const xOf = (t) => pad.left + ((t - startTs) / windowSec) * w;
+  const yOf = (v) => pad.top + h - ((v - yMin) / (yMax - yMin)) * h;
+
+  batteryCtx.font = "11px IBM Plex Sans, sans-serif";
+  batteryCtx.fillStyle = "#6b7280";
+  batteryCtx.textAlign = "right";
+  batteryCtx.textBaseline = "middle";
+  batteryCtx.strokeStyle = "#e5e7eb";
+  batteryCtx.lineWidth = 1;
+  for (let i = 0; i <= 4; i += 1) {
+    const y = pad.top + (h / 4) * i;
+    const tick = yMax - ((yMax - yMin) * i) / 4;
+    batteryCtx.beginPath();
+    batteryCtx.moveTo(pad.left, y);
+    batteryCtx.lineTo(pad.left + w, y);
+    batteryCtx.stroke();
+    batteryCtx.fillText(tick.toFixed(2), pad.left - 8, y);
+  }
+
+  batteryCtx.textAlign = "center";
+  batteryCtx.textBaseline = "top";
+  batteryCtx.fillText(startTs.toFixed(1), pad.left, pad.top + h + 6);
+  batteryCtx.fillText(now.toFixed(1), pad.left + w, pad.top + h + 6);
+  batteryCtx.fillText("Time [s]", pad.left + w * 0.5, batteryCanvas.height - 14);
+
+  batteryCtx.save();
+  batteryCtx.translate(16, pad.top + h * 0.5);
+  batteryCtx.rotate(-Math.PI / 2);
+  batteryCtx.textAlign = "center";
+  batteryCtx.textBaseline = "top";
+  batteryCtx.fillText("Battery [V]", 0, 0);
+  batteryCtx.restore();
+
+  batteryCtx.lineWidth = 2;
+  batteryCtx.strokeStyle = "#0ea5e9";
+  batteryCtx.beginPath();
+  data.forEach((d, i) => {
+    const x = xOf(d.ts);
+    const y = yOf(Number(d.batteryV ?? 0));
+    if (i === 0) batteryCtx.moveTo(x, y);
+    else batteryCtx.lineTo(x, y);
+  });
+  batteryCtx.stroke();
+}
+
 function render(data) {
   velocityValue.textContent = `${data.velocity.toFixed(1)} mm/s`;
   const desiredInput = Number(data.desiredVelocityInput ?? data.desiredVelocity);
   const desiredApplied = Number(data.desiredVelocity);
   desiredVelocityValue.textContent =
     `${desiredInput.toFixed(1)} mm/s (applied ${desiredApplied.toFixed(1)})`;
-  batteryValue.textContent = `${data.batterySoc.toFixed(1)} %`;
+  omegaValue.textContent = `${Number(data.omega ?? 0).toFixed(3)} rad/s`;
+  batteryValue.textContent = `${Number(data.batteryV ?? 0).toFixed(2)} V`;
   lapCountValue.textContent = `${Math.trunc(Number(data.lapCount ?? 0))}`;
   totalDistanceValue.textContent = `${Number(data.totalDistanceMm ?? 0).toFixed(1)} mm`;
+  if (data.params) {
+    const ordered = Object.keys(data.params)
+      .sort()
+      .reduce((acc, k) => {
+        acc[k] = data.params[k];
+        return acc;
+      }, {});
+    paramsView.textContent = JSON.stringify(ordered, null, 2);
+  }
   xhatValue.textContent = data.lineDetected ? `${data.xHat.toFixed(2)} mm` : "UNDETECTED";
   lineDetected.textContent = data.lineDetected ? "YES" : "NO";
   poseX.textContent = `${data.pose.x.toFixed(2)} mm`;
@@ -244,11 +387,15 @@ function render(data) {
   });
 
   drawVelocityChart(Number(windowSecSelect.value));
+  drawOmegaChart(Number(windowSecSelect.value));
+  drawBatteryChart(Number(windowSecSelect.value));
   drawPoseChart(Number(windowSecSelect.value));
 }
 
 windowSecSelect.addEventListener("change", () => {
   drawVelocityChart(Number(windowSecSelect.value));
+  drawOmegaChart(Number(windowSecSelect.value));
+  drawBatteryChart(Number(windowSecSelect.value));
   drawPoseChart(Number(windowSecSelect.value));
 });
 
