@@ -11,6 +11,7 @@
 #include <thread>
 
 namespace {
+constexpr double kPi = 3.14159265358979323846;
 volatile std::sig_atomic_t gKeepRunning = 1;
 
 void onSigint(int) {
@@ -132,6 +133,10 @@ Run::Run(const SimParams& paramsIn)
 int Run::run() {
   constexpr double kOutputPeriodS = 0.01;
   gKeepRunning = 1;
+  lapCount = 0;
+  hasPrevCourseProgress = false;
+  prevCourseProgressMm = 0.0;
+  totalDistanceMm = 0.0;
   std::signal(SIGINT, onSigint);
   std::cerr << "loaded params: desired_velocity_mm_s=" << params.desiredVelocityMmS
             << ", control_cycle_s=" << dtS << '\n';
@@ -142,6 +147,7 @@ int Run::run() {
     updatePlant();
     updateBattery();
     updateSensors();
+    updateLapCounter();
 
     const double measuredLinePositionMm = lineReading.detected ? lineReading.xHatMm : 0.0;
     driveCommand = cpu.updateDriveCommand(
@@ -202,6 +208,7 @@ void Run::updatePlant() {
   state.vLMmS = nextVLMps * 1000.0;
   state.vRMmS = nextVRMps * 1000.0;
   state.vMmS = (nextVLMps + nextVRMps) * 500.0;
+  totalDistanceMm += std::abs(state.vMmS) * dtS;
 
   const double trackM = params.wheelTreadMm / 1000.0;
   state.omegaRadS = (trackM > 1e-9) ? ((nextVRMps - nextVLMps) / trackM) : 0.0;
@@ -238,6 +245,31 @@ void Run::updateSensors() {
   if (lineReading.detected) {
     state.linePositionMm = lineReading.xHatMm;
   }
+}
+
+void Run::updateLapCounter() {
+  const double straightLengthMm = std::max(params.courseStraightLengthMm, 1.0);
+  const double radiusMm = std::max(params.courseCurveRadiusMm, 1.0);
+  const double lapLengthMm = 2.0 * straightLengthMm + 2.0 * kPi * radiusMm;
+  if (lapLengthMm <= 1e-9) {
+    return;
+  }
+
+  const double progressMm = computeCourseProgressMm();
+  if (!hasPrevCourseProgress) {
+    prevCourseProgressMm = progressMm;
+    hasPrevCourseProgress = true;
+    return;
+  }
+
+  const double deltaMm = progressMm - prevCourseProgressMm;
+  if (deltaMm < -0.5 * lapLengthMm) {
+    ++lapCount;
+  } else if (deltaMm > 0.5 * lapLengthMm && lapCount > 0) {
+    --lapCount;
+  }
+
+  prevCourseProgressMm = progressMm;
 }
 
 Run::CourseRelativePose Run::computeLineRelativePose() const {
@@ -296,6 +328,77 @@ Run::CourseRelativePose Run::computeLineRelativePose() const {
   };
 }
 
+double Run::computeCourseProgressMm() const {
+  const double straightLengthMm = std::max(params.courseStraightLengthMm, 1.0);
+  const double radiusMm = std::max(params.courseCurveRadiusMm, 1.0);
+  const double halfStraightMm = straightLengthMm * 0.5;
+  const double lapLengthMm = 2.0 * straightLengthMm + 2.0 * kPi * radiusMm;
+
+  const Point2 p{state.pose.xMm, state.pose.yMm};
+  const Point2 lowerA{-halfStraightMm, 0.0};
+  const Point2 lowerB{halfStraightMm, 0.0};
+  const Point2 upperA{halfStraightMm, 2.0 * radiusMm};
+  const Point2 upperB{-halfStraightMm, 2.0 * radiusMm};
+
+  const std::array<CourseCandidate, 4> candidates{
+      nearestOnSegment(p, lowerA, lowerB),
+      nearestOnSegment(p, upperA, upperB),
+      nearestOnRightArc(p, halfStraightMm, radiusMm),
+      nearestOnLeftArc(p, halfStraightMm, radiusMm),
+  };
+
+  const double fwdX = std::cos(state.pose.thetaRad);
+  const double fwdY = std::sin(state.pose.thetaRad);
+  CourseCandidate nearest = candidates[0];
+  bool hasForwardCompatible = false;
+  double bestScore = 1e30;
+
+  for (size_t i = 0; i < candidates.size(); ++i) {
+    const auto& c = candidates[i];
+    const double d2 = dist2(p, c.point);
+    const double headingAlign = c.tangent.x * fwdX + c.tangent.y * fwdY;
+    const bool forwardCompatible = (headingAlign >= -0.15);
+    if (!forwardCompatible && hasForwardCompatible) {
+      continue;
+    }
+    const double headingPenalty = (headingAlign >= 0.0) ? 0.0 : (1.0 - headingAlign) * radiusMm;
+    const double score = d2 + headingPenalty * headingPenalty;
+    if (!hasForwardCompatible || forwardCompatible) {
+      if (!hasForwardCompatible || score < bestScore) {
+        nearest = c;
+        bestScore = score;
+      }
+      if (forwardCompatible) {
+        hasForwardCompatible = true;
+      }
+    }
+  }
+
+  double sMm = 0.0;
+  const double qx = nearest.point.x;
+  const double qy = nearest.point.y;
+  if (std::abs(qy) < 1e-6) {
+    sMm = (qx >= 0.0) ? qx : (lapLengthMm + qx);
+  } else if (std::abs(qy - 2.0 * radiusMm) < 1e-6) {
+    sMm = halfStraightMm + kPi * radiusMm + (halfStraightMm - qx);
+  } else if (qx >= halfStraightMm) {
+    const double ang = std::atan2(qy - radiusMm, qx - halfStraightMm);
+    sMm = halfStraightMm + radiusMm * (ang + kPi * 0.5);
+  } else {
+    double ang = std::atan2(qy - radiusMm, qx + halfStraightMm);
+    if (ang < kPi * 0.5) {
+      ang += 2.0 * kPi;
+    }
+    sMm = halfStraightMm + kPi * radiusMm + straightLengthMm + radiusMm * (ang - kPi * 0.5);
+  }
+
+  sMm = std::fmod(sMm, lapLengthMm);
+  if (sMm < 0.0) {
+    sMm += lapLengthMm;
+  }
+  return sMm;
+}
+
 void Run::publishTelemetry() {
   if (!params.wsEnabled) {
     return;
@@ -329,6 +432,8 @@ void Run::publishTelemetry() {
   msg << "\"lineKd\":" << cpu.lineKd() << ',';
   msg << "\"basePwm\":" << cpu.lastBasePwm() << ',';
   msg << "\"steerPwm\":" << cpu.lastSteerPwm() << ',';
+  msg << "\"lapCount\":" << lapCount << ',';
+  msg << "\"totalDistanceMm\":" << totalDistanceMm << ',';
   msg << "\"lineValues\":[";
   for (size_t i = 0; i < lineReading.values.size(); ++i) {
     if (i != 0) {
@@ -372,6 +477,8 @@ void Run::renderConsole() const {
   std::cout << "Line Gain Kp/Ki/Kd   : " << cpu.lineKp() << " / " << cpu.lineKi() << " / " << cpu.lineKd() << '\n';
   std::cout << "Line err [mm]        : " << state.lateralErrorMm << '\n';
   std::cout << "Speed err [mm/s]     : " << state.velocityErrorMmS << '\n';
+  std::cout << "Lap Count            : " << lapCount << '\n';
+  std::cout << "Total Dist [mm]      : " << totalDistanceMm << '\n';
   std::cout << "Line Pattern         : " << lineAscii << '\n';
   std::cout << "Line Sensor[15]      : " << formatArray15(lineReading.values) << '\n';
   if (lineReading.detected) {

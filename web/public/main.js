@@ -4,6 +4,8 @@ const maxHistorySec = 120;
 const velocityValue = document.getElementById("velocityValue");
 const desiredVelocityValue = document.getElementById("desiredVelocityValue");
 const batteryValue = document.getElementById("batteryValue");
+const lapCountValue = document.getElementById("lapCountValue");
+const totalDistanceValue = document.getElementById("totalDistanceValue");
 const xhatValue = document.getElementById("xhatValue");
 const lineDetected = document.getElementById("lineDetected");
 const poseX = document.getElementById("poseX");
@@ -227,6 +229,8 @@ function render(data) {
   desiredVelocityValue.textContent =
     `${desiredInput.toFixed(1)} mm/s (applied ${desiredApplied.toFixed(1)})`;
   batteryValue.textContent = `${data.batterySoc.toFixed(1)} %`;
+  lapCountValue.textContent = `${Math.trunc(Number(data.lapCount ?? 0))}`;
+  totalDistanceValue.textContent = `${Number(data.totalDistanceMm ?? 0).toFixed(1)} mm`;
   xhatValue.textContent = data.lineDetected ? `${data.xHat.toFixed(2)} mm` : "UNDETECTED";
   lineDetected.textContent = data.lineDetected ? "YES" : "NO";
   poseX.textContent = `${data.pose.x.toFixed(2)} mm`;

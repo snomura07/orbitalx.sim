@@ -22,11 +22,13 @@ class Run {
   void updatePlant();
   void updateBattery();
   void updateSensors();
+  void updateLapCounter();
   struct CourseRelativePose {
     double lateralMm{0.0};
     double longitudinalMm{0.0};
   };
   CourseRelativePose computeLineRelativePose() const;
+  double computeCourseProgressMm() const;
   void publishTelemetry();
   void renderConsole() const;
 
@@ -48,6 +50,10 @@ class Run {
   std::string lineAscii;
 
   int reconnectCounter{0};
+  int lapCount{0};
+  bool hasPrevCourseProgress{false};
+  double prevCourseProgressMm{0.0};
+  double totalDistanceMm{0.0};
   double elapsedS{0.0};
   double dtS{0.01};
 };
