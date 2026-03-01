@@ -48,6 +48,82 @@ struct CourseCandidate {
   Point2 tangent{};
 };
 
+double wrapAngleRad(double a) {
+  double x = a;
+  while (x > kPi) {
+    x -= 2.0 * kPi;
+  }
+  while (x < -kPi) {
+    x += 2.0 * kPi;
+  }
+  return x;
+}
+
+std::vector<int> classifyOdometrySegmentTypes(const std::vector<Pose>& trace, double stepMm) {
+  const size_t n = trace.size();
+  if (n < 2) {
+    return {};
+  }
+  if (n < 3) {
+    return std::vector<int>(n - 1, 0);
+  }
+
+  const double ds = std::max(stepMm, 1e-6);
+  std::vector<double> thetaSeg;
+  thetaSeg.reserve(n - 1);
+  for (size_t i = 0; i + 1 < n; ++i) {
+    const double dx = trace[i + 1].xMm - trace[i].xMm;
+    const double dy = trace[i + 1].yMm - trace[i].yMm;
+    thetaSeg.push_back(std::atan2(dy, dx));
+  }
+
+  std::vector<double> kappaPoint(n, 0.0);
+  for (size_t i = 1; i + 1 < n; ++i) {
+    const double dTheta = wrapAngleRad(thetaSeg[i] - thetaSeg[i - 1]);
+    kappaPoint[i] = dTheta / ds;
+  }
+  kappaPoint[0] = kappaPoint[1];
+  kappaPoint[n - 1] = kappaPoint[n - 2];
+
+  std::vector<double> kappaSmooth(n, 0.0);
+  constexpr int kRadius = 2;
+  for (size_t i = 0; i < n; ++i) {
+    double sum = 0.0;
+    int count = 0;
+    for (int k = -kRadius; k <= kRadius; ++k) {
+      const int j = static_cast<int>(i) + k;
+      if (j < 0 || j >= static_cast<int>(n)) {
+        continue;
+      }
+      sum += kappaPoint[static_cast<size_t>(j)];
+      ++count;
+    }
+    kappaSmooth[i] = (count > 0) ? (sum / static_cast<double>(count)) : 0.0;
+  }
+
+  constexpr double kStraight = 0.0008;
+  constexpr double kCurve = 0.0016;
+  std::vector<int> statePoint(n, 0);
+  int state = 0;
+  for (size_t i = 0; i < n; ++i) {
+    const double ka = std::abs(kappaSmooth[i]);
+    if (state == 0) {
+      if (ka >= kCurve) {
+        state = 1;
+      }
+    } else if (ka <= kStraight) {
+      state = 0;
+    }
+    statePoint[i] = state;
+  }
+
+  std::vector<int> stateSeg(n - 1, 0);
+  for (size_t i = 0; i + 1 < n; ++i) {
+    stateSeg[i] = (statePoint[i] != 0 || statePoint[i + 1] != 0) ? 1 : 0;
+  }
+  return stateSeg;
+}
+
 double dist2(const Point2& a, const Point2& b) {
   const double dx = a.x - b.x;
   const double dy = a.y - b.y;
@@ -122,8 +198,9 @@ CourseCandidate nearestOnLeftArc(const Point2& p, double halfStraightMm, double 
 }
 }  // namespace
 
-Run::Run(const SimParams& paramsIn)
+Run::Run(const SimParams& paramsIn, const RunOptions& optionsIn)
     : params(paramsIn),
+      options(optionsIn),
       battery(params),
       state(),
       encoder(state),
@@ -144,9 +221,16 @@ int Run::run() {
   hasPrevCourseProgress = false;
   prevCourseProgressMm = 0.0;
   totalDistanceMm = 0.0;
+  odometryTracePoints.clear();
+  nextOdometrySampleDistanceMm = 0.0;
+  if (options.odometryTraceMode) {
+    odometryTracePoints.push_back(state.pose);
+    nextOdometrySampleDistanceMm = 10.0;
+  }
   std::signal(SIGINT, onSigint);
   std::cerr << "loaded params: desired_velocity_mm_s=" << params.desiredVelocityMmS
-            << ", control_cycle_s=" << dtS << '\n';
+            << ", control_cycle_s=" << dtS
+            << ", odometry_trace_mode=" << (options.odometryTraceMode ? "on" : "off") << '\n';
 
   auto nextTick = std::chrono::steady_clock::now();
   double outputAccumS = 0.0;
@@ -155,6 +239,9 @@ int Run::run() {
     updateBattery();
     updateSensors();
     updateLapCounter();
+    if (options.odometryTraceMode && lapCount > 1) {
+      gKeepRunning = 0;
+    }
 
     const double measuredLinePositionMm = lineReading.detected ? lineReading.xHatMm : 0.0;
     driveCommand = cpu.updateDriveCommand(
@@ -165,7 +252,7 @@ int Run::run() {
 
     outputAccumS += dtS;
     if (outputAccumS >= kOutputPeriodS) {
-      publishTelemetry();
+      publishOdometry();
       renderConsole();
       outputAccumS = std::fmod(outputAccumS, kOutputPeriodS);
     }
@@ -176,6 +263,7 @@ int Run::run() {
     std::this_thread::sleep_until(nextTick);
   }
 
+  publishOdometry();
   wsClient.close();
   std::cout << "\nSimulation stopped.\n";
   return 0;
@@ -223,6 +311,7 @@ void Run::updatePlant() {
   state.pose.xMm += state.vMmS * std::cos(state.pose.thetaRad) * dtS;
   state.pose.yMm += state.vMmS * std::sin(state.pose.thetaRad) * dtS;
   state.pose.thetaRad += state.omegaRadS * dtS;
+  maybeRecordOdometryTracePose();
 }
 
 void Run::updateBattery() {
@@ -406,7 +495,17 @@ double Run::computeCourseProgressMm() const {
   return sMm;
 }
 
-void Run::publishTelemetry() {
+void Run::maybeRecordOdometryTracePose() {
+  if (!options.odometryTraceMode) {
+    return;
+  }
+  while (totalDistanceMm >= nextOdometrySampleDistanceMm) {
+    odometryTracePoints.push_back(state.pose);
+    nextOdometrySampleDistanceMm += 10.0;
+  }
+}
+
+void Run::publishOdometry() {
   if (!params.wsEnabled) {
     return;
   }
@@ -486,7 +585,28 @@ void Run::publishTelemetry() {
   msg << "\"resist_F0_N\":" << params.resistF0N << ',';
   msg << "\"resist_kv_N_per_mps\":" << params.resistKvNPerMps << ',';
   msg << "\"resist_k2_N_per_mps2\":" << params.resistK2NPerMps2;
-  msg << "}}";
+  msg << "},";
+  msg << "\"odometryTraceMode\":" << (options.odometryTraceMode ? "true" : "false") << ',';
+  msg << "\"odometryTraceStepMm\":10.0,";
+  msg << "\"odometryTracePoints\":[";
+  for (size_t i = 0; i < odometryTracePoints.size(); ++i) {
+    if (i != 0) {
+      msg << ',';
+    }
+    const Pose& p = odometryTracePoints[i];
+    msg << "{\"x\":" << p.xMm << ",\"y\":" << p.yMm << ",\"theta\":" << p.thetaRad << '}';
+  }
+  msg << "],";
+  const std::vector<int> odometrySegmentTypes =
+      classifyOdometrySegmentTypes(odometryTracePoints, 10.0);
+  msg << "\"odometrySegmentTypes\":[";
+  for (size_t i = 0; i < odometrySegmentTypes.size(); ++i) {
+    if (i != 0) {
+      msg << ',';
+    }
+    msg << odometrySegmentTypes[i];
+  }
+  msg << "]}";
   if (!wsClient.sendText(msg.str())) {
     wsClient.close();
   }

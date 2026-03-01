@@ -7,9 +7,26 @@
 
 int main(int argc, char** argv) {
   std::string configPath;
-  if (argc > 1) {
-    configPath = argv[1];
-  } else {
+  RunOptions options;
+  for (int i = 1; i < argc; ++i) {
+    const std::string arg = argv[i];
+    if (arg == "--odo") {
+      options.odometryTraceMode = true;
+      continue;
+    }
+    if (!arg.empty() && arg[0] == '-') {
+      std::cerr << "unknown option: " << arg << '\n';
+      return 1;
+    }
+    if (configPath.empty()) {
+      configPath = arg;
+    } else {
+      std::cerr << "unexpected argument: " << arg << '\n';
+      return 1;
+    }
+  }
+
+  if (configPath.empty()) {
     const std::string kDefault = "config/sim_params.conf";
     const std::string kFromBuildDir = "../config/sim_params.conf";
     if (std::filesystem::exists(kDefault)) {
@@ -23,6 +40,6 @@ int main(int argc, char** argv) {
 
   std::cerr << "using config: " << configPath << '\n';
   const SimParams params = ConfigLoader::load(configPath);
-  Run runner(params);
+  Run runner(params, options);
   return runner.run();
 }

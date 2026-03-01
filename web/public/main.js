@@ -27,6 +27,8 @@ const batteryCanvas = document.getElementById("batteryChart");
 const batteryCtx = batteryCanvas.getContext("2d");
 const poseCanvas = document.getElementById("poseChart");
 const poseCtx = poseCanvas.getContext("2d");
+const odometryCanvas = document.getElementById("odometryChart");
+const odometryCtx = odometryCanvas.getContext("2d");
 const vehicleSprite = new Image();
 let vehicleSpriteReady = false;
 vehicleSprite.onload = () => {
@@ -296,6 +298,136 @@ function drawPoseChart(windowSec) {
   }
 }
 
+function drawOdometryChart() {
+  resizeCanvasToDisplaySize(odometryCanvas, odometryCtx);
+  const latest = history.length ? history[history.length - 1] : null;
+  const canvasW = odometryCanvas.clientWidth;
+  const canvasH = odometryCanvas.clientHeight;
+  odometryCtx.clearRect(0, 0, canvasW, canvasH);
+  odometryCtx.fillStyle = "#f7fafc";
+  odometryCtx.fillRect(0, 0, canvasW, canvasH);
+
+  if (!latest) {
+    return;
+  }
+
+  const xMin = Number(xMinInput.value);
+  const xMax = Number(xMaxInput.value);
+  const yMin = Number(yMinInput.value);
+  const yMax = Number(yMaxInput.value);
+  if (!(xMax > xMin) || !(yMax > yMin)) {
+    return;
+  }
+
+  const pad = { left: 44, right: 22, top: 16, bottom: 34 };
+  const w = canvasW - pad.left - pad.right;
+  const h = canvasH - pad.top - pad.bottom;
+  const xOf = (x) => pad.left + ((x - xMin) / (xMax - xMin)) * w;
+  const yOf = (y) => pad.top + h - ((y - yMin) / (yMax - yMin)) * h;
+
+  odometryCtx.font = "11px IBM Plex Sans, sans-serif";
+  odometryCtx.fillStyle = "#6b7280";
+  odometryCtx.strokeStyle = "#e5e7eb";
+  odometryCtx.lineWidth = 1;
+  for (let i = 0; i <= 4; i += 1) {
+    const x = pad.left + (w / 4) * i;
+    const y = pad.top + (h / 4) * i;
+    odometryCtx.beginPath();
+    odometryCtx.moveTo(x, pad.top);
+    odometryCtx.lineTo(x, pad.top + h);
+    odometryCtx.stroke();
+    odometryCtx.beginPath();
+    odometryCtx.moveTo(pad.left, y);
+    odometryCtx.lineTo(pad.left + w, y);
+    odometryCtx.stroke();
+
+    odometryCtx.textAlign = "center";
+    odometryCtx.textBaseline = "top";
+    const xTick = xMin + ((xMax - xMin) * i) / 4;
+    odometryCtx.fillText(xTick.toFixed(0), x, pad.top + h + 6);
+
+    odometryCtx.textAlign = "right";
+    odometryCtx.textBaseline = "middle";
+    const yTick = yMax - ((yMax - yMin) * i) / 4;
+    odometryCtx.fillText(yTick.toFixed(0), pad.left - 8, y);
+  }
+
+  odometryCtx.textAlign = "center";
+  odometryCtx.textBaseline = "top";
+  odometryCtx.fillText("X [mm]", pad.left + w * 0.5, canvasH - 14);
+  odometryCtx.save();
+  odometryCtx.translate(14, pad.top + h * 0.5);
+  odometryCtx.rotate(-Math.PI / 2);
+  odometryCtx.textAlign = "center";
+  odometryCtx.textBaseline = "top";
+  odometryCtx.fillText("Y [mm]", 0, 0);
+  odometryCtx.restore();
+
+  const straightLength = Number(latest?.course?.straightLength ?? 5000);
+  const curveRadius = Number(latest?.course?.curveRadius ?? 300);
+  const halfStraight = straightLength * 0.5;
+
+  odometryCtx.strokeStyle = "#94a3b8";
+  odometryCtx.lineWidth = 2;
+  odometryCtx.setLineDash([7, 5]);
+  odometryCtx.beginPath();
+  const arcSegments = 48;
+  const moveToPoint = (x, y) => {
+    odometryCtx.moveTo(xOf(x), yOf(y));
+  };
+  const lineToPoint = (x, y) => {
+    odometryCtx.lineTo(xOf(x), yOf(y));
+  };
+  moveToPoint(-halfStraight, 0);
+  lineToPoint(halfStraight, 0);
+  for (let i = 0; i <= arcSegments; i += 1) {
+    const t = -Math.PI / 2 + (Math.PI * i) / arcSegments;
+    lineToPoint(halfStraight + curveRadius * Math.cos(t), curveRadius + curveRadius * Math.sin(t));
+  }
+  lineToPoint(-halfStraight, 2 * curveRadius);
+  for (let i = 0; i <= arcSegments; i += 1) {
+    const t = Math.PI / 2 + (Math.PI * i) / arcSegments;
+    lineToPoint(-halfStraight + curveRadius * Math.cos(t), curveRadius + curveRadius * Math.sin(t));
+  }
+  odometryCtx.closePath();
+  odometryCtx.stroke();
+  odometryCtx.setLineDash([]);
+
+  const trace = Array.isArray(latest.odometryTracePoints) ? latest.odometryTracePoints : [];
+  if (trace.length < 2) {
+    odometryCtx.fillStyle = "#64748b";
+    odometryCtx.textAlign = "left";
+    odometryCtx.textBaseline = "top";
+    odometryCtx.fillText("Run with --odo to collect odometry trace.", pad.left + 8, pad.top + 8);
+    return;
+  }
+  const segState = Array.isArray(latest.odometrySegmentTypes) ? latest.odometrySegmentTypes : [];
+  odometryCtx.lineWidth = 2;
+  for (let i = 0; i < trace.length - 1; i += 1) {
+    const p0 = trace[i];
+    const p1 = trace[i + 1];
+    odometryCtx.strokeStyle = Number(segState[i] ?? 0) !== 0 ? "#dc2626" : "#16a34a";
+    odometryCtx.beginPath();
+    odometryCtx.moveTo(xOf(Number(p0.x)), yOf(Number(p0.y)));
+    odometryCtx.lineTo(xOf(Number(p1.x)), yOf(Number(p1.y)));
+    odometryCtx.stroke();
+  }
+
+  odometryCtx.font = "11px IBM Plex Sans, sans-serif";
+  odometryCtx.textAlign = "left";
+  odometryCtx.textBaseline = "top";
+  odometryCtx.fillStyle = "#16a34a";
+  odometryCtx.fillText("Straight", pad.left + 8, pad.top + 6);
+  odometryCtx.fillStyle = "#dc2626";
+  odometryCtx.fillText("Curve", pad.left + 70, pad.top + 6);
+
+  const last = trace[trace.length - 1];
+  odometryCtx.fillStyle = "#f97316";
+  odometryCtx.beginPath();
+  odometryCtx.arc(xOf(Number(last.x)), yOf(Number(last.y)), 4, 0, Math.PI * 2);
+  odometryCtx.fill();
+}
+
 function drawOmegaChart(windowSec) {
   const now = history.length ? history[history.length - 1].ts : 0;
   const startTs = now - windowSec;
@@ -488,6 +620,7 @@ function render(data) {
   drawOmegaChart(Number(windowSecSelect.value));
   drawBatteryChart(Number(windowSecSelect.value));
   drawPoseChart(Number(windowSecSelect.value));
+  drawOdometryChart();
 }
 
 windowSecSelect.addEventListener("change", () => {
@@ -495,16 +628,19 @@ windowSecSelect.addEventListener("change", () => {
   drawOmegaChart(Number(windowSecSelect.value));
   drawBatteryChart(Number(windowSecSelect.value));
   drawPoseChart(Number(windowSecSelect.value));
+  drawOdometryChart();
 });
 
 [xMinInput, xMaxInput, yMinInput, yMaxInput].forEach((el) => {
   el.addEventListener("change", () => {
     drawPoseChart(Number(windowSecSelect.value));
+    drawOdometryChart();
   });
 });
 
 window.addEventListener("resize", () => {
   drawPoseChart(Number(windowSecSelect.value));
+  drawOdometryChart();
 });
 
 ws.addEventListener("message", (ev) => {

@@ -10,10 +10,15 @@
 #include "core/plant/motor/Motor.h"
 
 #include <string>
+#include <vector>
+
+struct RunOptions {
+  bool odometryTraceMode{false};
+};
 
 class Run {
  public:
-  explicit Run(const SimParams& params);
+  explicit Run(const SimParams& params, const RunOptions& options = {});
 
   int run();
 
@@ -29,10 +34,12 @@ class Run {
   };
   CourseRelativePose computeLineRelativePose() const;
   double computeCourseProgressMm() const;
-  void publishTelemetry();
+  void maybeRecordOdometryTracePose();
+  void publishOdometry();
   void renderConsole() const;
 
   SimParams params;
+  RunOptions options;
   Battery battery;
   VehicleState state;
   Encoder encoder;
@@ -54,6 +61,8 @@ class Run {
   bool hasPrevCourseProgress{false};
   double prevCourseProgressMm{0.0};
   double totalDistanceMm{0.0};
+  std::vector<Pose> odometryTracePoints;
+  double nextOdometrySampleDistanceMm{0.0};
   double elapsedS{0.0};
   double dtS{0.01};
 };
