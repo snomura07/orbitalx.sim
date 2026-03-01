@@ -11,7 +11,6 @@
 #include <thread>
 
 namespace {
-constexpr double kDt = 0.01;
 volatile std::sig_atomic_t gKeepRunning = 1;
 
 void onSigint(int) {
@@ -30,6 +29,89 @@ std::string formatArray15(const std::array<double, 15>& values) {
   oss << ']';
   return oss.str();
 }
+
+struct Point2 {
+  double x{0.0};
+  double y{0.0};
+};
+
+struct CourseCandidate {
+  Point2 point{};
+  Point2 tangent{};
+};
+
+double dist2(const Point2& a, const Point2& b) {
+  const double dx = a.x - b.x;
+  const double dy = a.y - b.y;
+  return dx * dx + dy * dy;
+}
+
+CourseCandidate nearestOnSegment(const Point2& p, const Point2& a, const Point2& b) {
+  const double abx = b.x - a.x;
+  const double aby = b.y - a.y;
+  const double ab2 = abx * abx + aby * aby;
+  if (ab2 <= 1e-12) {
+    return CourseCandidate{a, Point2{1.0, 0.0}};
+  }
+  const double apx = p.x - a.x;
+  const double apy = p.y - a.y;
+  const double t = std::clamp((apx * abx + apy * aby) / ab2, 0.0, 1.0);
+  const double len = std::hypot(abx, aby);
+  const double tx = (len > 1e-12) ? (abx / len) : 1.0;
+  const double ty = (len > 1e-12) ? (aby / len) : 0.0;
+  return CourseCandidate{
+      Point2{a.x + t * abx, a.y + t * aby},
+      Point2{tx, ty},
+  };
+}
+
+CourseCandidate nearestOnRightArc(const Point2& p, double halfStraightMm, double radiusMm) {
+  const Point2 center{halfStraightMm, radiusMm};
+  const double vx = p.x - center.x;
+  const double vy = p.y - center.y;
+  const double len = std::hypot(vx, vy);
+  Point2 q{};
+  if (len <= 1e-12) {
+    q = Point2{halfStraightMm + radiusMm, radiusMm};
+  } else {
+    q = Point2{center.x + radiusMm * (vx / len), center.y + radiusMm * (vy / len)};
+  }
+  if (q.x >= halfStraightMm) {
+    const double nx = (q.x - center.x) / radiusMm;
+    const double ny = (q.y - center.y) / radiusMm;
+    return CourseCandidate{q, Point2{-ny, nx}};
+  }
+  const Point2 bottom{halfStraightMm, 0.0};
+  const Point2 top{halfStraightMm, 2.0 * radiusMm};
+  if (dist2(p, bottom) <= dist2(p, top)) {
+    return CourseCandidate{bottom, Point2{1.0, 0.0}};
+  }
+  return CourseCandidate{top, Point2{-1.0, 0.0}};
+}
+
+CourseCandidate nearestOnLeftArc(const Point2& p, double halfStraightMm, double radiusMm) {
+  const Point2 center{-halfStraightMm, radiusMm};
+  const double vx = p.x - center.x;
+  const double vy = p.y - center.y;
+  const double len = std::hypot(vx, vy);
+  Point2 q{};
+  if (len <= 1e-12) {
+    q = Point2{-halfStraightMm - radiusMm, radiusMm};
+  } else {
+    q = Point2{center.x + radiusMm * (vx / len), center.y + radiusMm * (vy / len)};
+  }
+  if (q.x <= -halfStraightMm) {
+    const double nx = (q.x - center.x) / radiusMm;
+    const double ny = (q.y - center.y) / radiusMm;
+    return CourseCandidate{q, Point2{-ny, nx}};
+  }
+  const Point2 bottom{-halfStraightMm, 0.0};
+  const Point2 top{-halfStraightMm, 2.0 * radiusMm};
+  if (dist2(p, bottom) <= dist2(p, top)) {
+    return CourseCandidate{bottom, Point2{1.0, 0.0}};
+  }
+  return CourseCandidate{top, Point2{-1.0, 0.0}};
+}
 }  // namespace
 
 Run::Run(const SimParams& paramsIn)
@@ -42,26 +124,42 @@ Run::Run(const SimParams& paramsIn)
       motorL(params),
       motorR(params),
       cpu(params, encoder, batterySensor),
-      wsClient(params.wsHost, params.wsPort, params.wsPath) {
+      wsClient(params.wsHost, params.wsPort, params.wsPath),
+      dtS(std::clamp(params.controlCycleS, 0.001, 0.05)) {
   state.vbatV = batterySensor.readVoltageV();
 }
 
 int Run::run() {
+  constexpr double kOutputPeriodS = 0.01;
   gKeepRunning = 1;
   std::signal(SIGINT, onSigint);
+  std::cerr << "loaded params: desired_velocity_mm_s=" << params.desiredVelocityMmS
+            << ", control_cycle_s=" << dtS << '\n';
 
   auto nextTick = std::chrono::steady_clock::now();
+  double outputAccumS = 0.0;
   while (gKeepRunning) {
-    driveCommand = cpu.updateDriveCommand(params.desiredVelocityMmS, kDt);
-    applyDriveCommand(driveCommand);
     updatePlant();
     updateBattery();
     updateSensors();
-    publishTelemetry();
-    renderConsole();
 
-    elapsedS += kDt;
-    nextTick += std::chrono::milliseconds(10);
+    const double measuredLinePositionMm = lineReading.detected ? lineReading.xHatMm : 0.0;
+    driveCommand = cpu.updateDriveCommand(
+        params.desiredVelocityMmS, measuredLinePositionMm, lineReading.detected, dtS);
+    applyDriveCommand(driveCommand);
+    state.lateralErrorMm = cpu.lastLineErrorMm();
+    state.velocityErrorMmS = cpu.lastVelocityErrorMmS();
+
+    outputAccumS += dtS;
+    if (outputAccumS >= kOutputPeriodS) {
+      publishTelemetry();
+      renderConsole();
+      outputAccumS = std::fmod(outputAccumS, kOutputPeriodS);
+    }
+
+    elapsedS += dtS;
+    nextTick += std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+        std::chrono::duration<double>(dtS));
     std::this_thread::sleep_until(nextTick);
   }
 
@@ -76,38 +174,47 @@ void Run::applyDriveCommand(const DriveCommand& command) {
 }
 
 void Run::updatePlant() {
-  const double vMps = encoder.readVelocityMmS() / 1000.0;
-  const double vbatV = batterySensor.readVoltageV();
-
-  motorLeftResult = motorL.evaluate(state.dutyL, vbatV, vMps);
-  motorRightResult = motorR.evaluate(state.dutyR, vbatV, vMps);
-
-  const double driveForceTotalN = motorLeftResult.driveForceN + motorRightResult.driveForceN;
-  const double resistN = params.resistF0N +
-                         params.resistKvNPerMps * std::abs(vMps) +
-                         params.resistK2NPerMps2 * vMps * vMps;
-  const double massKg = params.massG / 1000.0;
-  const double accelerationMps2 = (driveForceTotalN - resistN) / massKg;
-  const double velocityMaxMps = params.vehicleMaxVelocityMmS / 1000.0;
-  const double nextVelocityMps = std::clamp(vMps + accelerationMps2 * kDt, 0.0, velocityMaxMps);
-
-  state.vMmS = nextVelocityMps * 1000.0;
-  state.vLMmS = state.vMmS;
-  state.vRMmS = state.vMmS;
-
-  const double trackM = params.wheelBaseMm / 1000.0;
   const double vLMps = state.vLMmS / 1000.0;
   const double vRMps = state.vRMmS / 1000.0;
-  state.omegaRadS = (trackM > 1e-9) ? ((vRMps - vLMps) / trackM) : 0.0;
+  const double vbatV = batterySensor.readVoltageV();
 
-  state.pose.xMm += state.vMmS * std::cos(state.pose.thetaRad) * kDt;
-  state.pose.yMm += state.vMmS * std::sin(state.pose.thetaRad) * kDt;
-  state.pose.thetaRad += state.omegaRadS * kDt;
+  motorLeftResult = motorL.evaluate(state.dutyL, vbatV, vLMps);
+  motorRightResult = motorR.evaluate(state.dutyR, vbatV, vRMps);
+
+  const auto wheelResistance = [&](double wheelVelMps) {
+    if (std::abs(wheelVelMps) <= 1e-6) {
+      return 0.0;
+    }
+    const double sign = (wheelVelMps >= 0.0) ? 1.0 : -1.0;
+    const double absV = std::abs(wheelVelMps);
+    return sign * (0.5 * params.resistF0N +
+                   params.resistKvNPerMps * absV +
+                   params.resistK2NPerMps2 * absV * absV);
+  };
+  const double massKg = params.massG / 1000.0;
+  const double wheelMassKg = std::max(massKg * 0.5, 1e-6);
+  const double accelLMps2 = (motorLeftResult.driveForceN - wheelResistance(vLMps)) / wheelMassKg;
+  const double accelRMps2 = (motorRightResult.driveForceN - wheelResistance(vRMps)) / wheelMassKg;
+  const double velocityMaxMps = params.vehicleMaxVelocityMmS / 1000.0;
+  const double nextVLMps = std::clamp(vLMps + accelLMps2 * dtS, -velocityMaxMps, velocityMaxMps);
+  const double nextVRMps = std::clamp(vRMps + accelRMps2 * dtS, -velocityMaxMps, velocityMaxMps);
+
+  state.vLMmS = nextVLMps * 1000.0;
+  state.vRMmS = nextVRMps * 1000.0;
+  state.vMmS = (nextVLMps + nextVRMps) * 500.0;
+
+  const double trackM = params.wheelTreadMm / 1000.0;
+  state.omegaRadS = (trackM > 1e-9) ? ((nextVRMps - nextVLMps) / trackM) : 0.0;
+
+  state.pose.xMm += state.vMmS * std::cos(state.pose.thetaRad) * dtS;
+  state.pose.yMm += state.vMmS * std::sin(state.pose.thetaRad) * dtS;
+  state.pose.thetaRad += state.omegaRadS * dtS;
 }
 
 void Run::updateBattery() {
-  const double totalCurrentA = motorLeftResult.currentA + motorRightResult.currentA + params.batteryIMcuA;
-  battery.update(totalCurrentA, kDt);
+  const double totalCurrentA =
+      std::abs(motorLeftResult.currentA) + std::abs(motorRightResult.currentA) + params.batteryIMcuA;
+  battery.update(totalCurrentA, dtS);
 
   state.vbatV = batterySensor.readVoltageV();
   state.vmotLV = state.dutyL * state.vbatV;
@@ -117,8 +224,76 @@ void Run::updateBattery() {
 }
 
 void Run::updateSensors() {
-  lineReading = lineSensor.read(params.whiteLineOffsetMm);
-  lineAscii = lineSensor.renderLineAscii(params.whiteLineOffsetMm);
+  constexpr double kLineSensorLongitudinalWindowMm = 12.0;
+  const CourseRelativePose rel = computeLineRelativePose();
+  if (std::abs(rel.longitudinalMm) > kLineSensorLongitudinalWindowMm) {
+    lineReading = lineSensor.read(1e6);
+    lineAscii = lineSensor.renderLineAscii(1e6);
+    return;
+  }
+
+  const double lineOffsetMm = rel.lateralMm + params.whiteLineOffsetMm;
+  lineReading = lineSensor.read(lineOffsetMm);
+  lineAscii = lineSensor.renderLineAscii(lineOffsetMm);
+  if (lineReading.detected) {
+    state.linePositionMm = lineReading.xHatMm;
+  }
+}
+
+Run::CourseRelativePose Run::computeLineRelativePose() const {
+  const double straightLengthMm = std::max(params.courseStraightLengthMm, 1.0);
+  const double radiusMm = std::max(params.courseCurveRadiusMm, 1.0);
+  const double halfStraightMm = straightLengthMm * 0.5;
+
+  const Point2 p{state.pose.xMm, state.pose.yMm};
+  const Point2 lowerA{-halfStraightMm, 0.0};
+  const Point2 lowerB{halfStraightMm, 0.0};
+  const Point2 upperA{halfStraightMm, 2.0 * radiusMm};
+  const Point2 upperB{-halfStraightMm, 2.0 * radiusMm};
+
+  const std::array<CourseCandidate, 4> candidates{
+      nearestOnSegment(p, lowerA, lowerB),
+      nearestOnSegment(p, upperA, upperB),
+      nearestOnRightArc(p, halfStraightMm, radiusMm),
+      nearestOnLeftArc(p, halfStraightMm, radiusMm),
+  };
+
+  const double fwdX = std::cos(state.pose.thetaRad);
+  const double fwdY = std::sin(state.pose.thetaRad);
+  CourseCandidate nearest = candidates[0];
+  bool hasForwardCompatible = false;
+  double bestScore = 1e30;
+
+  for (size_t i = 0; i < candidates.size(); ++i) {
+    const auto& c = candidates[i];
+    const double d2 = dist2(p, c.point);
+    const double headingAlign = c.tangent.x * fwdX + c.tangent.y * fwdY;
+    const bool forwardCompatible = (headingAlign >= -0.15);
+    if (!forwardCompatible && hasForwardCompatible) {
+      continue;
+    }
+    const double headingPenalty = (headingAlign >= 0.0) ? 0.0 : (1.0 - headingAlign) * radiusMm;
+    const double score = d2 + headingPenalty * headingPenalty;
+    if (!hasForwardCompatible || forwardCompatible) {
+      if (!hasForwardCompatible || score < bestScore) {
+        nearest = c;
+        bestScore = score;
+      }
+      if (forwardCompatible) {
+        hasForwardCompatible = true;
+      }
+    }
+  }
+
+  const double dx = nearest.point.x - p.x;
+  const double dy = nearest.point.y - p.y;
+  const double rightX = std::sin(state.pose.thetaRad);
+  const double rightY = -std::cos(state.pose.thetaRad);
+  // Sensor X-axis treats right side as positive, so project onto vehicle-right.
+  return CourseRelativePose{
+      dx * rightX + dy * rightY,
+      dx * fwdX + dy * fwdY,
+  };
 }
 
 void Run::publishTelemetry() {
@@ -143,9 +318,17 @@ void Run::publishTelemetry() {
   msg << "\"ts\":" << elapsedS << ',';
   msg << "\"velocity\":" << state.vMmS << ',';
   msg << "\"desiredVelocity\":" << cpu.desiredVelocityMmS() << ',';
+  msg << "\"desiredVelocityInput\":" << params.desiredVelocityMmS << ',';
   msg << "\"batterySoc\":" << batterySensor.readSocPercent() << ',';
   msg << "\"lineDetected\":" << (lineReading.detected ? "true" : "false") << ',';
   msg << "\"xHat\":" << (lineReading.detected ? lineReading.xHatMm : 0.0) << ',';
+  msg << "\"lineError\":" << state.lateralErrorMm << ',';
+  msg << "\"velocityError\":" << state.velocityErrorMmS << ',';
+  msg << "\"lineKp\":" << cpu.lineKp() << ',';
+  msg << "\"lineKi\":" << cpu.lineKi() << ',';
+  msg << "\"lineKd\":" << cpu.lineKd() << ',';
+  msg << "\"basePwm\":" << cpu.lastBasePwm() << ',';
+  msg << "\"steerPwm\":" << cpu.lastSteerPwm() << ',';
   msg << "\"lineValues\":[";
   for (size_t i = 0; i < lineReading.values.size(); ++i) {
     if (i != 0) {
@@ -158,6 +341,10 @@ void Run::publishTelemetry() {
   msg << "\"x\":" << state.pose.xMm << ',';
   msg << "\"y\":" << state.pose.yMm << ',';
   msg << "\"theta\":" << state.pose.thetaRad;
+  msg << "},";
+  msg << "\"course\":{";
+  msg << "\"straightLength\":" << params.courseStraightLengthMm << ',';
+  msg << "\"curveRadius\":" << params.courseCurveRadiusMm;
   msg << "}}";
   if (!wsClient.sendText(msg.str())) {
     wsClient.close();
@@ -179,7 +366,12 @@ void Run::renderConsole() const {
   std::cout << "Motor I L/R [A]      : " << state.iLA << " / " << state.iRA << '\n';
   std::cout << "Pose x,y [mm]        : " << state.pose.xMm << ", " << state.pose.yMm << '\n';
   std::cout << "Pose theta [rad]     : " << state.pose.thetaRad << '\n';
+  std::cout << "Wheel v L/R [mm/s]   : " << state.vLMmS << " / " << state.vRMmS << '\n';
   std::cout << "PWM Duty L/R         : " << state.dutyL << " / " << state.dutyR << '\n';
+  std::cout << "Base/Steer PWM       : " << cpu.lastBasePwm() << " / " << cpu.lastSteerPwm() << '\n';
+  std::cout << "Line Gain Kp/Ki/Kd   : " << cpu.lineKp() << " / " << cpu.lineKi() << " / " << cpu.lineKd() << '\n';
+  std::cout << "Line err [mm]        : " << state.lateralErrorMm << '\n';
+  std::cout << "Speed err [mm/s]     : " << state.velocityErrorMmS << '\n';
   std::cout << "Line Pattern         : " << lineAscii << '\n';
   std::cout << "Line Sensor[15]      : " << formatArray15(lineReading.values) << '\n';
   if (lineReading.detected) {
@@ -189,4 +381,3 @@ void Run::renderConsole() const {
   }
   std::cout.flush();
 }
-

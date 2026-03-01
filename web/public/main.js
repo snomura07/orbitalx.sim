@@ -33,7 +33,7 @@ for (let i = 0; i < 15; i += 1) {
 function drawVelocityChart(windowSec) {
   const now = history.length ? history[history.length - 1].ts : 0;
   const startTs = now - windowSec;
-  const data = history.filter((d) => d.ts >= startTs);
+  const data = history.filter((d) => d.ts >= startTs && d.ts <= now);
 
   ctx.clearRect(0, 0, velocityCanvas.width, velocityCanvas.height);
   ctx.fillStyle = "#f7fafc";
@@ -86,7 +86,7 @@ function drawVelocityChart(windowSec) {
 function drawPoseChart(windowSec) {
   const now = history.length ? history[history.length - 1].ts : 0;
   const startTs = now - windowSec;
-  const data = history.filter((d) => d.ts >= startTs);
+  const data = history.filter((d) => d.ts >= startTs && d.ts <= now);
 
   poseCtx.clearRect(0, 0, poseCanvas.width, poseCanvas.height);
   poseCtx.fillStyle = "#f7fafc";
@@ -125,6 +125,40 @@ function drawPoseChart(windowSec) {
     poseCtx.stroke();
   }
 
+  const latest = data[data.length - 1];
+  const straightLength = Number(latest?.course?.straightLength ?? 5000);
+  const curveRadius = Number(latest?.course?.curveRadius ?? 300);
+  const halfStraight = straightLength * 0.5;
+
+  poseCtx.strokeStyle = "#94a3b8";
+  poseCtx.lineWidth = 2;
+  poseCtx.setLineDash([7, 5]);
+  poseCtx.beginPath();
+
+  const arcSegments = 48;
+  const moveToPoint = (x, y) => {
+    poseCtx.moveTo(xOf(x), yOf(y));
+  };
+  const lineToPoint = (x, y) => {
+    poseCtx.lineTo(xOf(x), yOf(y));
+  };
+
+  moveToPoint(-halfStraight, 0);
+  lineToPoint(halfStraight, 0);
+  for (let i = 0; i <= arcSegments; i += 1) {
+    const t = -Math.PI / 2 + (Math.PI * i) / arcSegments;
+    lineToPoint(halfStraight + curveRadius * Math.cos(t), curveRadius + curveRadius * Math.sin(t));
+  }
+  lineToPoint(-halfStraight, 2 * curveRadius);
+  for (let i = 0; i <= arcSegments; i += 1) {
+    const t = Math.PI / 2 + (Math.PI * i) / arcSegments;
+    lineToPoint(-halfStraight + curveRadius * Math.cos(t), curveRadius + curveRadius * Math.sin(t));
+  }
+
+  poseCtx.closePath();
+  poseCtx.stroke();
+  poseCtx.setLineDash([]);
+
   poseCtx.strokeStyle = "#155e75";
   poseCtx.lineWidth = 2;
   poseCtx.beginPath();
@@ -145,7 +179,10 @@ function drawPoseChart(windowSec) {
 
 function render(data) {
   velocityValue.textContent = `${data.velocity.toFixed(1)} mm/s`;
-  desiredVelocityValue.textContent = `${data.desiredVelocity.toFixed(1)} mm/s`;
+  const desiredInput = Number(data.desiredVelocityInput ?? data.desiredVelocity);
+  const desiredApplied = Number(data.desiredVelocity);
+  desiredVelocityValue.textContent =
+    `${desiredInput.toFixed(1)} mm/s (applied ${desiredApplied.toFixed(1)})`;
   batteryValue.textContent = `${data.batterySoc.toFixed(1)} %`;
   xhatValue.textContent = data.lineDetected ? `${data.xHat.toFixed(2)} mm` : "UNDETECTED";
   lineDetected.textContent = data.lineDetected ? "YES" : "NO";
@@ -176,10 +213,18 @@ windowSecSelect.addEventListener("change", () => {
 
 ws.addEventListener("message", (ev) => {
   const msg = JSON.parse(ev.data);
+  const lastTs = history.length ? history[history.length - 1].ts : null;
+  if (lastTs !== null && msg.ts < lastTs) {
+    history.length = 0;
+  }
   history.push(msg);
   const now = msg.ts;
   while (history.length && history[0].ts < now - maxHistorySec) {
     history.shift();
   }
   render(msg);
+});
+
+ws.addEventListener("open", () => {
+  history.length = 0;
 });

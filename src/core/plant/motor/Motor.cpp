@@ -12,7 +12,7 @@ Motor::Motor(const SimParams& paramsIn) : params(paramsIn) {}
 MotorStepResult Motor::evaluate(double duty, double vbatV, double wheelVMps) const {
   MotorStepResult out{};
 
-  const double dutyClamped = std::clamp(duty, 0.0, 1.0);
+  const double dutyClamped = std::clamp(duty, -1.0, 1.0);
   out.vmotV = dutyClamped * vbatV;
 
   const double wheelRadiusM = (params.tireDiameterMm / 1000.0) * 0.5;
@@ -25,9 +25,14 @@ MotorStepResult Motor::evaluate(double duty, double vbatV, double wheelVMps) con
 
   out.bemfV = motorRpm / params.motorKnRpmV;
   out.currentA = (out.vmotV - out.bemfV) / params.motorROhm;
-  out.currentA = std::max(0.0, out.currentA);
 
-  out.torqueMotorNm = params.motorKtNmA * std::max(0.0, out.currentA - params.motorI0A);
+  const double currentAbs = std::abs(out.currentA);
+  if (currentAbs <= params.motorI0A) {
+    out.torqueMotorNm = 0.0;
+  } else {
+    const double torqueSign = (out.currentA >= 0.0) ? 1.0 : -1.0;
+    out.torqueMotorNm = params.motorKtNmA * (currentAbs - params.motorI0A) * torqueSign;
+  }
   out.torqueWheelNm = out.torqueMotorNm * gearRatio * params.etaGear;
   out.driveForceN = (wheelRadiusM > 1e-9) ? (out.torqueWheelNm / wheelRadiusM) : 0.0;
   return out;

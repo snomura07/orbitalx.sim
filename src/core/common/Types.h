@@ -22,21 +22,26 @@ struct VehicleState {
   double iLA{0.0};
   double iRA{0.0};
   double lateralErrorMm{0.0};
+  double linePositionMm{0.0};
+  double velocityErrorMmS{0.0};
 };
 
 struct SimParams {
   double vehicleMaxVelocityMmS{4000.0};
-  double trialMaxVelocityMmS{1000.0};
   double accelerationMmSS{3000.0};
   double batteryVInit{8.3};
   double tireDiameterMm{24.0};
   double gearMotor{20.0};
   double gearWheel{64.0};
   double massG{125.0};
-  double wheelBaseMm{198.0};
+  double wheelTreadMm{98.0};
   double desiredVelocityMmS{1000.0};
   double simDurationS{10.0};
+  double controlCycleS{0.01};
   double whiteLineOffsetMm{0.0};
+  double courseStraightLengthMm{5000.0};
+  double courseCurveRadiusMm{300.0};
+  double lineSensorLongitudinalWindowMm{60.0};
 
   double pwmMax{1500.0};
   double motorROhm{2.83};
@@ -55,6 +60,14 @@ struct SimParams {
   double resistF0N{0.10};
   double resistKvNPerMps{0.20};
   double resistK2NPerMps2{0.0};
+
+  double speedKp{0.45};
+  double speedKi{0.10};
+  double lineKp{2.00};
+  double lineKi{0.00};
+  double lineKd{0.40};
+  double lineIntegralLimit{500.0};
+  double lineSteerPwmLimitRatio{0.35};
 
   bool wsEnabled{true};
   std::string wsHost{"web"};

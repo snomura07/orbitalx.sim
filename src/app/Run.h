@@ -22,6 +22,11 @@ class Run {
   void updatePlant();
   void updateBattery();
   void updateSensors();
+  struct CourseRelativePose {
+    double lateralMm{0.0};
+    double longitudinalMm{0.0};
+  };
+  CourseRelativePose computeLineRelativePose() const;
   void publishTelemetry();
   void renderConsole() const;
 
@@ -44,4 +49,5 @@ class Run {
 
   int reconnectCounter{0};
   double elapsedS{0.0};
+  double dtS{0.01};
 };

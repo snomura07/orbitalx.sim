@@ -15,13 +15,32 @@ class Cpu {
  public:
   Cpu(const SimParams& params, const Encoder& encoder, const BatterySensor& batterySensor);
 
-  DriveCommand updateDriveCommand(double desiredVelocityMmS, double dtS);
+  DriveCommand updateDriveCommand(double desiredVelocityMmS,
+                                  double linePositionMm,
+                                  bool lineDetected,
+                                  double dtS);
   double desiredVelocityMmS() const;
+  double lastVelocityErrorMmS() const;
+  double lastLineErrorMm() const;
+  double lastBasePwm() const;
+  double lastSteerPwm() const;
+  double lineKp() const;
+  double lineKi() const;
+  double lineKd() const;
 
  private:
   SimParams params;
   const Encoder* encoder{nullptr};
   const BatterySensor* batterySensor{nullptr};
   double rampCmdVelocityMmS{0.0};
-  double integralTerm{0.0};
+  double speedIntegralTerm{0.0};
+  double lineIntegralTerm{0.0};
+  double prevLineErrorMm{0.0};
+  double filteredLineErrorMm{0.0};
+  bool hasFilteredLineError{false};
+  bool hasPrevLineError{false};
+  double lastVelocityError{0.0};
+  double lastLineError{0.0};
+  double lastBasePwmValue{0.0};
+  double lastSteerPwmValue{0.0};
 };
