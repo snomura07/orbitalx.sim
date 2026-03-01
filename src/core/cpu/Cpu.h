@@ -4,11 +4,18 @@
 #include "core/Sensor/BatterySensor.h"
 #include "core/Sensor/Encoder.h"
 
+struct DriveCommand {
+  double pwmL{0.0};
+  double pwmR{0.0};
+  double dutyL{0.0};
+  double dutyR{0.0};
+};
+
 class Cpu {
  public:
   Cpu(const SimParams& params, const Encoder& encoder, const BatterySensor& batterySensor);
 
-  double updatePwm(double desiredVelocityMmS, double dtS);
+  DriveCommand updateDriveCommand(double desiredVelocityMmS, double dtS);
   double desiredVelocityMmS() const;
 
  private:
