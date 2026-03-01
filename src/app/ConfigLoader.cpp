@@ -42,6 +42,20 @@ void assignParam(SimParams& p, const std::string& key, double val) {
   else if (key == "resist_F0_N") p.resistF0N = val;
   else if (key == "resist_kv_N_per_mps") p.resistKvNPerMps = val;
   else if (key == "resist_k2_N_per_mps2") p.resistK2NPerMps2 = val;
+  else if (key == "ws_enabled") p.wsEnabled = (val != 0.0);
+  else if (key == "ws_port") p.wsPort = static_cast<int>(val);
+}
+
+bool assignStringParam(SimParams& p, const std::string& key, const std::string& value) {
+  if (key == "ws_host") {
+    p.wsHost = value;
+    return true;
+  }
+  if (key == "ws_path") {
+    p.wsPath = value;
+    return true;
+  }
+  return false;
 }
 }  // namespace
 
@@ -75,6 +89,10 @@ SimParams ConfigLoader::load(const std::string& path) {
       continue;
     }
 
+    if (assignStringParam(params, key, value)) {
+      continue;
+    }
+
     try {
       assignParam(params, key, std::stod(value));
     } catch (...) {
@@ -84,4 +102,3 @@ SimParams ConfigLoader::load(const std::string& path) {
 
   return params;
 }
-

@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OrbitalX Dashboard</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <h1>OrbitalX Simulator Dashboard</h1>
+      <label class="window-select">
+        Window
+        <select id="windowSec">
+          <option value="5">5s</option>
+          <option value="10" selected>10s</option>
+          <option value="30">30s</option>
+          <option value="60">60s</option>
+        </select>
+      </label>
+    </header>
+    <main class="grid">
+      <section class="card">
+        <h2>Velocity</h2>
+        <div class="metric-row">
+          <div><span>Current</span><strong id="velocityValue">-</strong></div>
+          <div><span>Desired</span><strong id="desiredVelocityValue">-</strong></div>
+        </div>
+        <canvas id="velocityChart" width="520" height="220"></canvas>
+      </section>
+
+      <section class="card">
+        <h2>Battery</h2>
+        <div class="metric-row">
+          <div><span>SoC</span><strong id="batteryValue">-</strong></div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Line Detection</h2>
+        <div class="metric-row">
+          <div><span>x_hat</span><strong id="xhatValue">-</strong></div>
+          <div><span>Detected</span><strong id="lineDetected">-</strong></div>
+        </div>
+        <div id="lineBars" class="line-bars"></div>
+      </section>
+
+      <section class="card">
+        <h2>Pose</h2>
+        <div class="metric-row">
+          <div><span>X</span><strong id="poseX">-</strong></div>
+          <div><span>Y</span><strong id="poseY">-</strong></div>
+          <div><span>Theta</span><strong id="poseTheta">-</strong></div>
+        </div>
+      </section>
+    </main>
+    <script type="module" src="/main.js"></script>
+  </body>
+  </html>
+

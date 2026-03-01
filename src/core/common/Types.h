@@ -1,5 +1,7 @@
 #pragma once
 
+#include <string>
+
 struct Pose {
   double xMm{0.0};
   double yMm{0.0};
@@ -53,4 +55,9 @@ struct SimParams {
   double resistF0N{0.10};
   double resistKvNPerMps{0.20};
   double resistK2NPerMps2{0.0};
+
+  bool wsEnabled{true};
+  std::string wsHost{"web"};
+  int wsPort{8080};
+  std::string wsPath{"/ingest"};
 };

@@ -4,6 +4,7 @@
 #include "core/Sensor/BatterySensor.h"
 #include "core/Sensor/Encoder.h"
 #include "core/Sensor/LineSensor.h"
+#include "core/io/WsClient.h"
 #include "core/plant/battery/Battery.h"
 #include "core/plant/motor/Motor.h"
 
@@ -54,6 +55,8 @@ int Run::run() {
   Motor motorL(params);
   Motor motorR(params);
   Cpu cpu(params, encoder, batterySensor);
+  WsClient wsClient(params.wsHost, params.wsPort, params.wsPath);
+  int reconnectCounter = 0;
   state.vbatV = batterySensor.readVoltageV();
   double elapsedS = 0.0;
 
@@ -103,6 +106,43 @@ int Run::run() {
     const auto lineReading = lineSensor.read(params.whiteLineOffsetMm);
     const std::string lineAscii = lineSensor.renderLineAscii(params.whiteLineOffsetMm);
 
+    if (params.wsEnabled) {
+      if (!wsClient.isConnected()) {
+        if (reconnectCounter <= 0) {
+          wsClient.connect();
+          reconnectCounter = 100;  // 1s retry interval at 10ms loop
+        } else {
+          --reconnectCounter;
+        }
+      }
+      if (wsClient.isConnected()) {
+        std::ostringstream msg;
+        msg << '{';
+        msg << "\"ts\":" << elapsedS << ',';
+        msg << "\"velocity\":" << state.vMmS << ',';
+        msg << "\"desiredVelocity\":" << cpu.desiredVelocityMmS() << ',';
+        msg << "\"batterySoc\":" << batterySensor.readSocPercent() << ',';
+        msg << "\"lineDetected\":" << (lineReading.detected ? "true" : "false") << ',';
+        msg << "\"xHat\":" << (lineReading.detected ? lineReading.xHatMm : 0.0) << ',';
+        msg << "\"lineValues\":[";
+        for (size_t i = 0; i < lineReading.values.size(); ++i) {
+          if (i != 0) {
+            msg << ',';
+          }
+          msg << lineReading.values[i];
+        }
+        msg << "],";
+        msg << "\"pose\":{";
+        msg << "\"x\":" << state.pose.xMm << ',';
+        msg << "\"y\":" << state.pose.yMm << ',';
+        msg << "\"theta\":" << state.pose.thetaRad;
+        msg << "}}";
+        if (!wsClient.sendText(msg.str())) {
+          wsClient.close();
+        }
+      }
+    }
+
     std::cout << "\x1b[2J\x1b[H";
     std::cout << std::fixed << std::setprecision(3);
     std::cout << "Robot Trace Simulator (Ctrl+C to stop)\n";
@@ -133,6 +173,6 @@ int Run::run() {
   }
 
   std::cout << "\nSimulation stopped.\n";
+  wsClient.close();
   return 0;
 }
-
