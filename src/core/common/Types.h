@@ -67,6 +67,11 @@ struct SimParams {
   double lineKi{0.00};
   double lineKd{0.40};
   double lineIntegralLimit{500.0};
+  double omegaRefLimitRadS{8.0};
+  double yawrateKp{180.0};
+  double yawrateKi{20.0};
+  double yawrateKd{0.0};
+  double yawrateIntegralLimit{50.0};
   double lineSteerPwmLimitRatio{0.35};
 
   bool wsEnabled{true};

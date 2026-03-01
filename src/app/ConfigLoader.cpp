@@ -50,6 +50,11 @@ bool assignParam(SimParams& p, const std::string& key, double val) {
   else if (key == "line_ki") p.lineKi = val;
   else if (key == "line_kd") p.lineKd = val;
   else if (key == "line_integral_limit") p.lineIntegralLimit = val;
+  else if (key == "omega_ref_limit_rad_s") p.omegaRefLimitRadS = val;
+  else if (key == "yawrate_kp") p.yawrateKp = val;
+  else if (key == "yawrate_ki") p.yawrateKi = val;
+  else if (key == "yawrate_kd") p.yawrateKd = val;
+  else if (key == "yawrate_integral_limit") p.yawrateIntegralLimit = val;
   else if (key == "ws_enabled") p.wsEnabled = (val != 0.0);
   else if (key == "ws_port") p.wsPort = static_cast<int>(val);
   else return false;

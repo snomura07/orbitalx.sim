@@ -19,15 +19,20 @@ DriveCommand Cpu::updateDriveCommand(double desiredVelocityMmS,
   const double vehicleMax = std::max(params.vehicleMaxVelocityMmS, 1.0);
   const double desiredTargetVelocityMmS = std::clamp(desiredVelocityMmS, 0.0, vehicleMax);
   const double currentVelocityMmS = (encoder != nullptr) ? encoder->readVelocityMmS() : 0.0;
+  const double currentOmegaRadS = (encoder != nullptr) ? encoder->readOmegaRadS() : 0.0;
   const double measuredBatteryV = (batterySensor != nullptr) ? batterySensor->readVoltageV() : 0.0;
 
   if (measuredBatteryV <= params.batteryVMin) {
     speedIntegralTerm = 0.0;
     lineIntegralTerm = 0.0;
+    yawrateIntegralTerm = 0.0;
     hasFilteredLineError = false;
     hasPrevLineError = false;
+    hasPrevOmegaError = false;
     lastVelocityError = 0.0;
     lastLineError = 0.0;
+    lastOmegaRef = 0.0;
+    lastOmegaError = 0.0;
     lastBasePwmValue = 0.0;
     lastSteerPwmValue = 0.0;
     return command;
@@ -82,10 +87,29 @@ DriveCommand Cpu::updateDriveCommand(double desiredVelocityMmS,
     lineDerivative = 0.0;
   }
 
-  const double steerPwmRaw = params.lineKp * lineInputMm +
+  const double omegaRefRaw = params.lineKp * lineInputMm +
                              params.lineKi * lineIntegralTerm +
                              params.lineKd * lineDerivative;
-  const double steerPwm = std::clamp(steerPwmRaw, -params.pwmMax, params.pwmMax);
+  const double omegaRef = std::clamp(
+      omegaRefRaw, -std::abs(params.omegaRefLimitRadS), std::abs(params.omegaRefLimitRadS));
+  lastOmegaRef = omegaRef;
+
+  const double omegaError = omegaRef - currentOmegaRadS;
+  lastOmegaError = omegaError;
+  yawrateIntegralTerm += omegaError * dtS;
+  yawrateIntegralTerm = std::clamp(
+      yawrateIntegralTerm, -params.yawrateIntegralLimit, params.yawrateIntegralLimit);
+  const double omegaDerivative =
+      (hasPrevOmegaError && dtS > 1e-9) ? ((omegaError - prevOmegaErrorRadS) / dtS) : 0.0;
+  prevOmegaErrorRadS = omegaError;
+  hasPrevOmegaError = true;
+
+  const double steerPwmRaw = params.yawrateKp * omegaError +
+                             params.yawrateKi * yawrateIntegralTerm +
+                             params.yawrateKd * omegaDerivative;
+  const double steerPwmLimit = std::clamp(
+      std::abs(params.lineSteerPwmLimitRatio), 0.05, 1.0) * params.pwmMax;
+  const double steerPwm = std::clamp(steerPwmRaw, -steerPwmLimit, steerPwmLimit);
 
   // Preserve steering authority: reserve PWM headroom for differential component.
   const double baseHeadroom = std::max(0.0, params.pwmMax - std::abs(steerPwm));
@@ -121,6 +145,14 @@ double Cpu::lastBasePwm() const {
 
 double Cpu::lastSteerPwm() const {
   return lastSteerPwmValue;
+}
+
+double Cpu::lastOmegaRefRadS() const {
+  return lastOmegaRef;
+}
+
+double Cpu::lastOmegaErrorRadS() const {
+  return lastOmegaError;
 }
 
 double Cpu::lineKp() const {

@@ -241,7 +241,15 @@ function drawOmegaChart(windowSec) {
     return;
   }
 
-  const omegaAbsMax = Math.max(...data.map((d) => Math.abs(Number(d.omega ?? 0))), 0.1);
+  const omegaAbsMax = Math.max(
+    ...data.map((d) =>
+      Math.max(
+        Math.abs(Number(d.omega ?? 0)),
+        Math.abs(Number(d.omegaRef ?? 0)),
+      ),
+    ),
+    0.1,
+  );
   const omegaRange = omegaAbsMax * 1.1;
   const pad = { left: 56, right: 16, top: 16, bottom: 34 };
   const w = omegaCanvas.width - pad.left - pad.right;
@@ -289,6 +297,24 @@ function drawOmegaChart(windowSec) {
     else omegaCtx.lineTo(x, y);
   });
   omegaCtx.stroke();
+
+  omegaCtx.strokeStyle = "#f97316";
+  omegaCtx.beginPath();
+  data.forEach((d, i) => {
+    const x = xOf(d.ts);
+    const y = yOf(Number(d.omegaRef ?? 0));
+    if (i === 0) omegaCtx.moveTo(x, y);
+    else omegaCtx.lineTo(x, y);
+  });
+  omegaCtx.stroke();
+
+  omegaCtx.font = "11px IBM Plex Sans, sans-serif";
+  omegaCtx.textAlign = "left";
+  omegaCtx.textBaseline = "top";
+  omegaCtx.fillStyle = "#7c3aed";
+  omegaCtx.fillText("actual", pad.left + 4, pad.top + 2);
+  omegaCtx.fillStyle = "#f97316";
+  omegaCtx.fillText("desired", pad.left + 52, pad.top + 2);
 }
 
 function drawBatteryChart(windowSec) {

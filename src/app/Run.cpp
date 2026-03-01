@@ -432,6 +432,8 @@ void Run::publishTelemetry() {
   msg << "\"lineKp\":" << cpu.lineKp() << ',';
   msg << "\"lineKi\":" << cpu.lineKi() << ',';
   msg << "\"lineKd\":" << cpu.lineKd() << ',';
+  msg << "\"omegaRef\":" << cpu.lastOmegaRefRadS() << ',';
+  msg << "\"omegaError\":" << cpu.lastOmegaErrorRadS() << ',';
   msg << "\"basePwm\":" << cpu.lastBasePwm() << ',';
   msg << "\"steerPwm\":" << cpu.lastSteerPwm() << ',';
   msg << "\"lapCount\":" << lapCount << ',';
@@ -496,6 +498,7 @@ void Run::renderConsole() const {
   std::cout << "PWM Duty L/R         : " << state.dutyL << " / " << state.dutyR << '\n';
   std::cout << "Base/Steer PWM       : " << cpu.lastBasePwm() << " / " << cpu.lastSteerPwm() << '\n';
   std::cout << "Line Gain Kp/Ki/Kd   : " << cpu.lineKp() << " / " << cpu.lineKi() << " / " << cpu.lineKd() << '\n';
+  std::cout << "Omega ref/err [rad/s]: " << cpu.lastOmegaRefRadS() << " / " << cpu.lastOmegaErrorRadS() << '\n';
   std::cout << "Line err [mm]        : " << state.lateralErrorMm << '\n';
   std::cout << "Speed err [mm/s]     : " << state.velocityErrorMmS << '\n';
   std::cout << "Lap Count            : " << lapCount << '\n';

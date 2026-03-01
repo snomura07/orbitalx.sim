@@ -24,6 +24,8 @@ class Cpu {
   double lastLineErrorMm() const;
   double lastBasePwm() const;
   double lastSteerPwm() const;
+  double lastOmegaRefRadS() const;
+  double lastOmegaErrorRadS() const;
   double lineKp() const;
   double lineKi() const;
   double lineKd() const;
@@ -39,8 +41,13 @@ class Cpu {
   double filteredLineErrorMm{0.0};
   bool hasFilteredLineError{false};
   bool hasPrevLineError{false};
+  double yawrateIntegralTerm{0.0};
+  double prevOmegaErrorRadS{0.0};
+  bool hasPrevOmegaError{false};
   double lastVelocityError{0.0};
   double lastLineError{0.0};
+  double lastOmegaRef{0.0};
+  double lastOmegaError{0.0};
   double lastBasePwmValue{0.0};
   double lastSteerPwmValue{0.0};
 };
