@@ -12,6 +12,7 @@ add_executable(orbitalx_sim
   src/core/cpu/Cpu.cpp
   src/core/Sensor/BatterySensor.cpp
   src/core/Sensor/Encoder.cpp
+  src/core/Sensor/LineSensor.cpp
 )
 
 target_include_directories(orbitalx_sim PRIVATE src)

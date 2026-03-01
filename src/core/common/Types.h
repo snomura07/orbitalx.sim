@@ -34,6 +34,7 @@ struct SimParams {
   double wheelBaseMm{198.0};
   double desiredVelocityMmS{1000.0};
   double simDurationS{10.0};
+  double whiteLineOffsetMm{0.0};
 
   double pwmMax{1500.0};
   double motorROhm{2.83};

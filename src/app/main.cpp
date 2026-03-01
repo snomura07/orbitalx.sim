@@ -2,6 +2,7 @@
 #include "core/cpu/Cpu.h"
 #include "core/Sensor/BatterySensor.h"
 #include "core/Sensor/Encoder.h"
+#include "core/Sensor/LineSensor.h"
 #include "core/plant/battery/Battery.h"
 #include "core/plant/motor/Motor.h"
 
@@ -12,6 +13,7 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <array>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -29,6 +31,19 @@ std::string trim(const std::string& s) {
   return s.substr(first, last - first + 1);
 }
 
+std::string formatArray15(const std::array<double, 15>& values) {
+  std::ostringstream oss;
+  oss << '[';
+  for (size_t i = 0; i < values.size(); ++i) {
+    if (i != 0) {
+      oss << ", ";
+    }
+    oss << std::fixed << std::setprecision(2) << values[i];
+  }
+  oss << ']';
+  return oss.str();
+}
+
 void assignParam(SimParams& p, const std::string& key, double val) {
   if (key == "vehicle_max_velocity_mm_s") p.vehicleMaxVelocityMmS = val;
   else if (key == "trial_max_velocity_mm_s") p.trialMaxVelocityMmS = val;
@@ -41,6 +56,7 @@ void assignParam(SimParams& p, const std::string& key, double val) {
   else if (key == "wheel_base_mm") p.wheelBaseMm = val;
   else if (key == "desired_velocity_mm_s") p.desiredVelocityMmS = val;
   else if (key == "sim_duration_s") p.simDurationS = val;
+  else if (key == "white_line_offset_mm") p.whiteLineOffsetMm = val;
   else if (key == "pwm_max") p.pwmMax = val;
   else if (key == "motor_R_ohm") p.motorROhm = val;
   else if (key == "motor_Kt_Nm_A") p.motorKtNmA = val;
@@ -110,6 +126,7 @@ int main(int argc, char** argv) {
   VehicleState state{};
   Encoder encoder(state);
   BatterySensor batterySensor(battery);
+  LineSensor lineSensor{};
   Motor motorL(params);
   Motor motorR(params);
   Cpu cpu(params, encoder, batterySensor);
@@ -159,6 +176,9 @@ int main(int argc, char** argv) {
     state.iLA = l.currentA;
     state.iRA = r.currentA;
 
+    const auto lineReading = lineSensor.read(params.whiteLineOffsetMm);
+    const std::string lineAscii = lineSensor.renderLineAscii(params.whiteLineOffsetMm);
+
     std::cout << "\x1b[2J\x1b[H";
     std::cout << std::fixed << std::setprecision(3);
     std::cout << "Robot Trace Simulator (Ctrl+C to stop)\n";
@@ -174,6 +194,13 @@ int main(int argc, char** argv) {
     std::cout << "Pose x,y [mm]        : " << state.pose.xMm << ", " << state.pose.yMm << '\n';
     std::cout << "Pose theta [rad]     : " << state.pose.thetaRad << '\n';
     std::cout << "PWM Duty L/R         : " << state.dutyL << " / " << state.dutyR << '\n';
+    std::cout << "Line Pattern         : " << lineAscii << '\n';
+    std::cout << "Line Sensor[15]      : " << formatArray15(lineReading.values) << '\n';
+    if (lineReading.detected) {
+      std::cout << "Estimated x_hat [mm] : " << lineReading.xHatMm << '\n';
+    } else {
+      std::cout << "Estimated x_hat [mm] : UNDETECTED\n";
+    }
     std::cout.flush();
 
     elapsedS += kDt;
