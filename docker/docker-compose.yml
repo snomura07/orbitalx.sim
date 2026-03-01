@@ -1,0 +1,16 @@
+services:
+  sim:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    working_dir: /work
+    volumes:
+      - ../build:/work/build
+      - ../src:/work/src
+      - ../config:/work/config
+      - ../CMakeLists.txt:/work/CMakeLists.txt
+
+      - ../bin:/usr/local/bin
+    command: bash
+    stdin_open: true
+    tty: true
