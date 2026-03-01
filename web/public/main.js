@@ -44,22 +44,42 @@ function drawVelocityChart(windowSec) {
   }
 
   const velMax = Math.max(...data.map((d) => Math.max(d.velocity, d.desiredVelocity)), 1);
-  const pad = 24;
-  const w = velocityCanvas.width - pad * 2;
-  const h = velocityCanvas.height - pad * 2;
+  const pad = { left: 56, right: 16, top: 16, bottom: 34 };
+  const w = velocityCanvas.width - pad.left - pad.right;
+  const h = velocityCanvas.height - pad.top - pad.bottom;
 
-  const xOf = (t) => pad + ((t - startTs) / windowSec) * w;
-  const yOf = (v) => pad + h - (v / velMax) * h;
+  const xOf = (t) => pad.left + ((t - startTs) / windowSec) * w;
+  const yOf = (v) => pad.top + h - (v / velMax) * h;
 
+  ctx.font = "11px IBM Plex Sans, sans-serif";
+  ctx.fillStyle = "#6b7280";
+  ctx.textAlign = "right";
+  ctx.textBaseline = "middle";
   ctx.strokeStyle = "#e5e7eb";
   ctx.lineWidth = 1;
   for (let i = 0; i <= 4; i += 1) {
-    const y = pad + (h / 4) * i;
+    const y = pad.top + (h / 4) * i;
+    const tickValue = ((velMax * (4 - i)) / 4).toFixed(0);
     ctx.beginPath();
-    ctx.moveTo(pad, y);
-    ctx.lineTo(pad + w, y);
+    ctx.moveTo(pad.left, y);
+    ctx.lineTo(pad.left + w, y);
     ctx.stroke();
+    ctx.fillText(tickValue, pad.left - 8, y);
   }
+
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  ctx.fillText(startTs.toFixed(1), pad.left, pad.top + h + 6);
+  ctx.fillText(now.toFixed(1), pad.left + w, pad.top + h + 6);
+  ctx.fillText("Time [s]", pad.left + w * 0.5, velocityCanvas.height - 14);
+
+  ctx.save();
+  ctx.translate(16, pad.top + h * 0.5);
+  ctx.rotate(-Math.PI / 2);
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  ctx.fillText("Velocity [mm/s]", 0, 0);
+  ctx.restore();
 
   ctx.lineWidth = 2;
   ctx.strokeStyle = "#0f766e";
@@ -104,26 +124,49 @@ function drawPoseChart(windowSec) {
     return;
   }
 
-  const pad = 28;
-  const w = poseCanvas.width - pad * 2;
-  const h = poseCanvas.height - pad * 2;
-  const xOf = (x) => pad + ((x - xMin) / (xMax - xMin)) * w;
-  const yOf = (y) => pad + h - ((y - yMin) / (yMax - yMin)) * h;
+  const pad = { left: 44, right: 22, top: 16, bottom: 34 };
+  const w = poseCanvas.width - pad.left - pad.right;
+  const h = poseCanvas.height - pad.top - pad.bottom;
+  const xOf = (x) => pad.left + ((x - xMin) / (xMax - xMin)) * w;
+  const yOf = (y) => pad.top + h - ((y - yMin) / (yMax - yMin)) * h;
 
+  poseCtx.font = "11px IBM Plex Sans, sans-serif";
+  poseCtx.fillStyle = "#6b7280";
   poseCtx.strokeStyle = "#e5e7eb";
   poseCtx.lineWidth = 1;
   for (let i = 0; i <= 4; i += 1) {
-    const x = pad + (w / 4) * i;
-    const y = pad + (h / 4) * i;
+    const x = pad.left + (w / 4) * i;
+    const y = pad.top + (h / 4) * i;
     poseCtx.beginPath();
-    poseCtx.moveTo(x, pad);
-    poseCtx.lineTo(x, pad + h);
+    poseCtx.moveTo(x, pad.top);
+    poseCtx.lineTo(x, pad.top + h);
     poseCtx.stroke();
     poseCtx.beginPath();
-    poseCtx.moveTo(pad, y);
-    poseCtx.lineTo(pad + h + (w - h), y);
+    poseCtx.moveTo(pad.left, y);
+    poseCtx.lineTo(pad.left + w, y);
     poseCtx.stroke();
+
+    poseCtx.textAlign = "center";
+    poseCtx.textBaseline = "top";
+    const xTick = xMin + ((xMax - xMin) * i) / 4;
+    poseCtx.fillText(xTick.toFixed(0), x, pad.top + h + 6);
+
+    poseCtx.textAlign = "right";
+    poseCtx.textBaseline = "middle";
+    const yTick = yMax - ((yMax - yMin) * i) / 4;
+    poseCtx.fillText(yTick.toFixed(0), pad.left - 8, y);
   }
+
+  poseCtx.textAlign = "center";
+  poseCtx.textBaseline = "top";
+  poseCtx.fillText("X [mm]", pad.left + w * 0.5, poseCanvas.height - 14);
+  poseCtx.save();
+  poseCtx.translate(14, pad.top + h * 0.5);
+  poseCtx.rotate(-Math.PI / 2);
+  poseCtx.textAlign = "center";
+  poseCtx.textBaseline = "top";
+  poseCtx.fillText("Y [mm]", 0, 0);
+  poseCtx.restore();
 
   const latest = data[data.length - 1];
   const straightLength = Number(latest?.course?.straightLength ?? 5000);
