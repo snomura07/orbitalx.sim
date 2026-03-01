@@ -34,6 +34,18 @@ vehicleSprite.onload = () => {
 };
 vehicleSprite.src = "/orbitalx.png";
 
+function resizeCanvasToDisplaySize(canvas, context) {
+  const rect = canvas.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  const displayWidth = Math.max(1, Math.round(rect.width * dpr));
+  const displayHeight = Math.max(1, Math.round(rect.height * dpr));
+  if (canvas.width !== displayWidth || canvas.height !== displayHeight) {
+    canvas.width = displayWidth;
+    canvas.height = displayHeight;
+  }
+  context.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+
 const wsProto = location.protocol === "https:" ? "wss" : "ws";
 const ws = new WebSocket(`${wsProto}://${location.host}/ws`);
 
@@ -49,9 +61,11 @@ function drawVelocityChart(windowSec) {
   const startTs = now - windowSec;
   const data = history.filter((d) => d.ts >= startTs && d.ts <= now);
 
-  ctx.clearRect(0, 0, velocityCanvas.width, velocityCanvas.height);
+  const canvasW = velocityCanvas.width;
+  const canvasH = velocityCanvas.height;
+  ctx.clearRect(0, 0, canvasW, canvasH);
   ctx.fillStyle = "#f7fafc";
-  ctx.fillRect(0, 0, velocityCanvas.width, velocityCanvas.height);
+  ctx.fillRect(0, 0, canvasW, canvasH);
 
   if (data.length < 2) {
     return;
@@ -59,8 +73,8 @@ function drawVelocityChart(windowSec) {
 
   const velMax = Math.max(...data.map((d) => Math.max(d.velocity, d.desiredVelocity)), 1);
   const pad = { left: 56, right: 16, top: 16, bottom: 34 };
-  const w = velocityCanvas.width - pad.left - pad.right;
-  const h = velocityCanvas.height - pad.top - pad.bottom;
+  const w = canvasW - pad.left - pad.right;
+  const h = canvasH - pad.top - pad.bottom;
 
   const xOf = (t) => pad.left + ((t - startTs) / windowSec) * w;
   const yOf = (v) => pad.top + h - (v / velMax) * h;
@@ -85,7 +99,7 @@ function drawVelocityChart(windowSec) {
   ctx.textBaseline = "top";
   ctx.fillText(startTs.toFixed(1), pad.left, pad.top + h + 6);
   ctx.fillText(now.toFixed(1), pad.left + w, pad.top + h + 6);
-  ctx.fillText("Time [s]", pad.left + w * 0.5, velocityCanvas.height - 14);
+  ctx.fillText("Time [s]", pad.left + w * 0.5, canvasH - 14);
 
   ctx.save();
   ctx.translate(16, pad.top + h * 0.5);
@@ -118,13 +132,16 @@ function drawVelocityChart(windowSec) {
 }
 
 function drawPoseChart(windowSec) {
+  resizeCanvasToDisplaySize(poseCanvas, poseCtx);
   const now = history.length ? history[history.length - 1].ts : 0;
   const startTs = now - windowSec;
   const data = history.filter((d) => d.ts >= startTs && d.ts <= now);
 
-  poseCtx.clearRect(0, 0, poseCanvas.width, poseCanvas.height);
+  const canvasW = poseCanvas.clientWidth;
+  const canvasH = poseCanvas.clientHeight;
+  poseCtx.clearRect(0, 0, canvasW, canvasH);
   poseCtx.fillStyle = "#f7fafc";
-  poseCtx.fillRect(0, 0, poseCanvas.width, poseCanvas.height);
+  poseCtx.fillRect(0, 0, canvasW, canvasH);
 
   if (data.length < 2) {
     return;
@@ -139,8 +156,8 @@ function drawPoseChart(windowSec) {
   }
 
   const pad = { left: 44, right: 22, top: 16, bottom: 34 };
-  const w = poseCanvas.width - pad.left - pad.right;
-  const h = poseCanvas.height - pad.top - pad.bottom;
+  const w = canvasW - pad.left - pad.right;
+  const h = canvasH - pad.top - pad.bottom;
   const xOf = (x) => pad.left + ((x - xMin) / (xMax - xMin)) * w;
   const yOf = (y) => pad.top + h - ((y - yMin) / (yMax - yMin)) * h;
   const pxPerMmX = w / (xMax - xMin);
@@ -176,7 +193,7 @@ function drawPoseChart(windowSec) {
 
   poseCtx.textAlign = "center";
   poseCtx.textBaseline = "top";
-  poseCtx.fillText("X [mm]", pad.left + w * 0.5, poseCanvas.height - 14);
+  poseCtx.fillText("X [mm]", pad.left + w * 0.5, canvasH - 14);
   poseCtx.save();
   poseCtx.translate(14, pad.top + h * 0.5);
   poseCtx.rotate(-Math.PI / 2);
@@ -284,9 +301,11 @@ function drawOmegaChart(windowSec) {
   const startTs = now - windowSec;
   const data = history.filter((d) => d.ts >= startTs && d.ts <= now);
 
-  omegaCtx.clearRect(0, 0, omegaCanvas.width, omegaCanvas.height);
+  const canvasW = omegaCanvas.width;
+  const canvasH = omegaCanvas.height;
+  omegaCtx.clearRect(0, 0, canvasW, canvasH);
   omegaCtx.fillStyle = "#f7fafc";
-  omegaCtx.fillRect(0, 0, omegaCanvas.width, omegaCanvas.height);
+  omegaCtx.fillRect(0, 0, canvasW, canvasH);
 
   if (data.length < 2) {
     return;
@@ -303,8 +322,8 @@ function drawOmegaChart(windowSec) {
   );
   const omegaRange = omegaAbsMax * 1.1;
   const pad = { left: 56, right: 16, top: 16, bottom: 34 };
-  const w = omegaCanvas.width - pad.left - pad.right;
-  const h = omegaCanvas.height - pad.top - pad.bottom;
+  const w = canvasW - pad.left - pad.right;
+  const h = canvasH - pad.top - pad.bottom;
   const xOf = (t) => pad.left + ((t - startTs) / windowSec) * w;
   const yOf = (v) => pad.top + h - ((v + omegaRange) / (2 * omegaRange)) * h;
 
@@ -328,7 +347,7 @@ function drawOmegaChart(windowSec) {
   omegaCtx.textBaseline = "top";
   omegaCtx.fillText(startTs.toFixed(1), pad.left, pad.top + h + 6);
   omegaCtx.fillText(now.toFixed(1), pad.left + w, pad.top + h + 6);
-  omegaCtx.fillText("Time [s]", pad.left + w * 0.5, omegaCanvas.height - 14);
+  omegaCtx.fillText("Time [s]", pad.left + w * 0.5, canvasH - 14);
 
   omegaCtx.save();
   omegaCtx.translate(16, pad.top + h * 0.5);
@@ -373,9 +392,11 @@ function drawBatteryChart(windowSec) {
   const startTs = now - windowSec;
   const data = history.filter((d) => d.ts >= startTs && d.ts <= now);
 
-  batteryCtx.clearRect(0, 0, batteryCanvas.width, batteryCanvas.height);
+  const canvasW = batteryCanvas.width;
+  const canvasH = batteryCanvas.height;
+  batteryCtx.clearRect(0, 0, canvasW, canvasH);
   batteryCtx.fillStyle = "#f7fafc";
-  batteryCtx.fillRect(0, 0, batteryCanvas.width, batteryCanvas.height);
+  batteryCtx.fillRect(0, 0, canvasW, canvasH);
 
   if (data.length < 2) {
     return;
@@ -385,8 +406,8 @@ function drawBatteryChart(windowSec) {
   const yMax = 8.5;
 
   const pad = { left: 56, right: 16, top: 16, bottom: 34 };
-  const w = batteryCanvas.width - pad.left - pad.right;
-  const h = batteryCanvas.height - pad.top - pad.bottom;
+  const w = canvasW - pad.left - pad.right;
+  const h = canvasH - pad.top - pad.bottom;
   const xOf = (t) => pad.left + ((t - startTs) / windowSec) * w;
   const yOf = (v) => pad.top + h - ((v - yMin) / (yMax - yMin)) * h;
 
@@ -410,7 +431,7 @@ function drawBatteryChart(windowSec) {
   batteryCtx.textBaseline = "top";
   batteryCtx.fillText(startTs.toFixed(1), pad.left, pad.top + h + 6);
   batteryCtx.fillText(now.toFixed(1), pad.left + w, pad.top + h + 6);
-  batteryCtx.fillText("Time [s]", pad.left + w * 0.5, batteryCanvas.height - 14);
+  batteryCtx.fillText("Time [s]", pad.left + w * 0.5, canvasH - 14);
 
   batteryCtx.save();
   batteryCtx.translate(16, pad.top + h * 0.5);
@@ -480,6 +501,10 @@ windowSecSelect.addEventListener("change", () => {
   el.addEventListener("change", () => {
     drawPoseChart(Number(windowSecSelect.value));
   });
+});
+
+window.addEventListener("resize", () => {
+  drawPoseChart(Number(windowSecSelect.value));
 });
 
 ws.addEventListener("message", (ev) => {

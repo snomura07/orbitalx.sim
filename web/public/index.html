@@ -20,6 +20,22 @@
       </label>
     </header>
     <main class="grid">
+      <section class="card pose-card">
+        <h2>Pose</h2>
+        <div class="metric-row">
+          <div><span>X</span><strong id="poseX">-</strong></div>
+          <div><span>Y</span><strong id="poseY">-</strong></div>
+          <div><span>Theta</span><strong id="poseTheta">-</strong></div>
+        </div>
+        <div class="pose-range">
+          <label>X min <input id="xMin" type="number" value="-3000" step="100" /></label>
+          <label>X max <input id="xMax" type="number" value="3000" step="100" /></label>
+          <label>Y min <input id="yMin" type="number" value="-2000" step="100" /></label>
+          <label>Y max <input id="yMax" type="number" value="2000" step="100" /></label>
+        </div>
+        <canvas id="poseChart" width="520" height="260"></canvas>
+      </section>
+
       <section class="card">
         <h2>Velocity</h2>
         <div class="metric-row">
@@ -39,22 +55,6 @@
           <div><span>Total Dist</span><strong id="totalDistanceValue">0 mm</strong></div>
         </div>
         <canvas id="batteryChart" width="520" height="220"></canvas>
-      </section>
-
-      <section class="card">
-        <h2>Pose</h2>
-        <div class="metric-row">
-          <div><span>X</span><strong id="poseX">-</strong></div>
-          <div><span>Y</span><strong id="poseY">-</strong></div>
-          <div><span>Theta</span><strong id="poseTheta">-</strong></div>
-        </div>
-        <div class="pose-range">
-          <label>X min <input id="xMin" type="number" value="-3000" step="100" /></label>
-          <label>X max <input id="xMax" type="number" value="3000" step="100" /></label>
-          <label>Y min <input id="yMin" type="number" value="-1000" step="100" /></label>
-          <label>Y max <input id="yMax" type="number" value="1000" step="100" /></label>
-        </div>
-        <canvas id="poseChart" width="520" height="260"></canvas>
       </section>
 
       <section class="card">

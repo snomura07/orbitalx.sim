@@ -88,11 +88,19 @@ body {
 #omegaChart,
 #batteryChart,
 #poseChart {
-  width: 100%;
+  display: block;
+  margin: 0 auto;
   max-width: 100%;
+  width: 100%;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: #fcfdff;
+}
+
+#velocityChart,
+#omegaChart,
+#batteryChart {
+  width: 520px;
 }
 
 #poseChart {
@@ -100,6 +108,10 @@ body {
 }
 
 .params-card {
+  grid-column: 1 / -1;
+}
+
+.pose-card {
   grid-column: 1 / -1;
 }
 
