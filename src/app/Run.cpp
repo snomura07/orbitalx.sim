@@ -31,22 +31,12 @@ std::string formatArray15(const std::array<double, 15>& values) {
   return oss.str();
 }
 
-struct Point2 {
-  double x{0.0};
-  double y{0.0};
-};
-
-Point2 sensorPointFromPose(const Pose& pose, double sensorBaseMm) {
-  return Point2{
+CoursePoint sensorPointFromPose(const Pose& pose, double sensorBaseMm) {
+  return CoursePoint{
       pose.xMm + sensorBaseMm * std::cos(pose.thetaRad),
       pose.yMm + sensorBaseMm * std::sin(pose.thetaRad),
   };
 }
-
-struct CourseCandidate {
-  Point2 point{};
-  Point2 tangent{};
-};
 
 double wrapAngleRad(double a) {
   double x = a;
@@ -132,83 +122,12 @@ std::vector<int> classifyOdometrySegmentTypes(const std::vector<Pose>& trace, do
   return stateSeg;
 }
 
-double dist2(const Point2& a, const Point2& b) {
-  const double dx = a.x - b.x;
-  const double dy = a.y - b.y;
-  return dx * dx + dy * dy;
-}
-
-CourseCandidate nearestOnSegment(const Point2& p, const Point2& a, const Point2& b) {
-  const double abx = b.x - a.x;
-  const double aby = b.y - a.y;
-  const double ab2 = abx * abx + aby * aby;
-  if (ab2 <= 1e-12) {
-    return CourseCandidate{a, Point2{1.0, 0.0}};
-  }
-  const double apx = p.x - a.x;
-  const double apy = p.y - a.y;
-  const double t = std::clamp((apx * abx + apy * aby) / ab2, 0.0, 1.0);
-  const double len = std::hypot(abx, aby);
-  const double tx = (len > 1e-12) ? (abx / len) : 1.0;
-  const double ty = (len > 1e-12) ? (aby / len) : 0.0;
-  return CourseCandidate{
-      Point2{a.x + t * abx, a.y + t * aby},
-      Point2{tx, ty},
-  };
-}
-
-CourseCandidate nearestOnRightArc(const Point2& p, double halfStraightMm, double radiusMm) {
-  const Point2 center{halfStraightMm, radiusMm};
-  const double vx = p.x - center.x;
-  const double vy = p.y - center.y;
-  const double len = std::hypot(vx, vy);
-  Point2 q{};
-  if (len <= 1e-12) {
-    q = Point2{halfStraightMm + radiusMm, radiusMm};
-  } else {
-    q = Point2{center.x + radiusMm * (vx / len), center.y + radiusMm * (vy / len)};
-  }
-  if (q.x >= halfStraightMm) {
-    const double nx = (q.x - center.x) / radiusMm;
-    const double ny = (q.y - center.y) / radiusMm;
-    return CourseCandidate{q, Point2{-ny, nx}};
-  }
-  const Point2 bottom{halfStraightMm, 0.0};
-  const Point2 top{halfStraightMm, 2.0 * radiusMm};
-  if (dist2(p, bottom) <= dist2(p, top)) {
-    return CourseCandidate{bottom, Point2{1.0, 0.0}};
-  }
-  return CourseCandidate{top, Point2{-1.0, 0.0}};
-}
-
-CourseCandidate nearestOnLeftArc(const Point2& p, double halfStraightMm, double radiusMm) {
-  const Point2 center{-halfStraightMm, radiusMm};
-  const double vx = p.x - center.x;
-  const double vy = p.y - center.y;
-  const double len = std::hypot(vx, vy);
-  Point2 q{};
-  if (len <= 1e-12) {
-    q = Point2{-halfStraightMm - radiusMm, radiusMm};
-  } else {
-    q = Point2{center.x + radiusMm * (vx / len), center.y + radiusMm * (vy / len)};
-  }
-  if (q.x <= -halfStraightMm) {
-    const double nx = (q.x - center.x) / radiusMm;
-    const double ny = (q.y - center.y) / radiusMm;
-    return CourseCandidate{q, Point2{-ny, nx}};
-  }
-  const Point2 bottom{-halfStraightMm, 0.0};
-  const Point2 top{-halfStraightMm, 2.0 * radiusMm};
-  if (dist2(p, bottom) <= dist2(p, top)) {
-    return CourseCandidate{bottom, Point2{1.0, 0.0}};
-  }
-  return CourseCandidate{top, Point2{-1.0, 0.0}};
-}
 }  // namespace
 
 Run::Run(const SimParams& paramsIn, const RunOptions& optionsIn)
     : params(paramsIn),
       options(optionsIn),
+      course(Course::fromParams(params)),
       battery(params),
       state(),
       encoder(state),
@@ -225,9 +144,10 @@ Run::Run(const SimParams& paramsIn, const RunOptions& optionsIn)
 int Run::run() {
   constexpr double kOutputPeriodS = 0.01;
   gKeepRunning = 1;
-  lapCount = 0;
+  lapCount = 1;
   hasPrevCourseProgress = false;
   prevCourseProgressMm = 0.0;
+  courseProgressAccumulatedMm = 0.0;
   totalDistanceMm = 0.0;
   odometryTracePoints.clear();
   nextOdometrySampleDistanceMm = 0.0;
@@ -235,6 +155,9 @@ int Run::run() {
   speedPlanDistanceMm.clear();
   speedPlanVelocityMmS.clear();
   speedPlanSegmentTypes.clear();
+  lineDetectedStable = false;
+  lineDetectHitCount = 0;
+  lineDetectMissCount = 0;
   desiredVelocityInputMmS = params.desiredVelocityMmS;
   if (options.odometryTraceMode) {
     odometryTracePoints.push_back(state.pose);
@@ -253,12 +176,12 @@ int Run::run() {
     updateSensors();
     updateLapCounter();
     maybeBuildSpeedPlanFromFirstLap();
-    if (options.odometryTraceMode && lapCount > 2) {
+    if (options.odometryTraceMode && lapCount >= 3) {
       break;
     }
 
     desiredVelocityInputMmS = params.desiredVelocityMmS;
-    if (options.odometryTraceMode && speedPlanReady && lapCount >= 1) {
+    if (options.odometryTraceMode && speedPlanReady && lapCount >= 2) {
       const double courseProgressMm = computeCourseProgressMm();
       desiredVelocityInputMmS = sampleSpeedPlanVelocityMmS(courseProgressMm);
     }
@@ -346,26 +269,39 @@ void Run::updateBattery() {
 }
 
 void Run::updateSensors() {
-  const double lineWindowMm = std::max(params.lineSensorLongitudinalWindowMm, 1.0);
-  const CourseRelativePose rel = computeLineRelativePose();
-  if (std::abs(rel.longitudinalMm) > lineWindowMm) {
-    lineReading = lineSensor.read(1e6);
-    lineAscii = lineSensor.renderLineAscii(1e6);
-    return;
-  }
+  constexpr int kDetectOnCount = 2;
+  constexpr int kDetectOffCount = 6;
+  auto applyDetectDebounce = [&](LineSensorReading& reading) {
+    if (reading.detected) {
+      lineDetectHitCount = std::min(lineDetectHitCount + 1, kDetectOffCount);
+      lineDetectMissCount = 0;
+      if (!lineDetectedStable && lineDetectHitCount >= kDetectOnCount) {
+        lineDetectedStable = true;
+      }
+    } else {
+      lineDetectMissCount = std::min(lineDetectMissCount + 1, kDetectOffCount);
+      lineDetectHitCount = 0;
+      if (lineDetectedStable && lineDetectMissCount >= kDetectOffCount) {
+        lineDetectedStable = false;
+      }
+    }
+    reading.detected = lineDetectedStable;
+    if (!reading.detected) {
+      reading.xHatMm = state.linePositionMm;
+    } else {
+      state.linePositionMm = reading.xHatMm;
+    }
+  };
 
+  const CourseRelativePose rel = computeLineRelativePose();
   const double lineOffsetMm = rel.lateralMm + params.whiteLineOffsetMm;
   lineReading = lineSensor.read(lineOffsetMm);
   lineAscii = lineSensor.renderLineAscii(lineOffsetMm);
-  if (lineReading.detected) {
-    state.linePositionMm = lineReading.xHatMm;
-  }
+  applyDetectDebounce(lineReading);
 }
 
 void Run::updateLapCounter() {
-  const double straightLengthMm = std::max(params.courseStraightLengthMm, 1.0);
-  const double radiusMm = std::max(params.courseCurveRadiusMm, 1.0);
-  const double lapLengthMm = 2.0 * straightLengthMm + 2.0 * kPi * radiusMm;
+  const double lapLengthMm = std::max(course.lengthMm(), 1.0);
   if (lapLengthMm <= 1e-9) {
     return;
   }
@@ -373,67 +309,39 @@ void Run::updateLapCounter() {
   const double progressMm = computeCourseProgressMm();
   if (!hasPrevCourseProgress) {
     prevCourseProgressMm = progressMm;
+    courseProgressAccumulatedMm = 0.0;
+    lapCount = 1;
     hasPrevCourseProgress = true;
     return;
   }
 
-  const double deltaMm = progressMm - prevCourseProgressMm;
+  double deltaMm = progressMm - prevCourseProgressMm;
   if (deltaMm < -0.5 * lapLengthMm) {
-    ++lapCount;
-  } else if (deltaMm > 0.5 * lapLengthMm && lapCount > 0) {
-    --lapCount;
+    deltaMm += lapLengthMm;
+  } else if (deltaMm > 0.5 * lapLengthMm) {
+    deltaMm -= lapLengthMm;
   }
+  const double maxForwardStepMm = std::max(params.vehicleMaxVelocityMmS * dtS * 4.0, 20.0);
+  deltaMm = std::clamp(deltaMm, -maxForwardStepMm, maxForwardStepMm);
+  // Keep lap progression monotonic against projection jitter.
+  if (deltaMm > 0.0) {
+    courseProgressAccumulatedMm += deltaMm;
+  }
+  lapCount = 1 + static_cast<int>(std::floor(courseProgressAccumulatedMm / lapLengthMm));
 
   prevCourseProgressMm = progressMm;
 }
 
 Run::CourseRelativePose Run::computeLineRelativePose() const {
-  const double straightLengthMm = std::max(params.courseStraightLengthMm, 1.0);
-  const double radiusMm = std::max(params.courseCurveRadiusMm, 1.0);
-  const double halfStraightMm = straightLengthMm * 0.5;
-
-  const Point2 p = sensorPointFromPose(state.pose, params.sensorBaseMm);
-  const Point2 lowerA{-halfStraightMm, 0.0};
-  const Point2 lowerB{halfStraightMm, 0.0};
-  const Point2 upperA{halfStraightMm, 2.0 * radiusMm};
-  const Point2 upperB{-halfStraightMm, 2.0 * radiusMm};
-
-  const std::array<CourseCandidate, 4> candidates{
-      nearestOnSegment(p, lowerA, lowerB),
-      nearestOnSegment(p, upperA, upperB),
-      nearestOnRightArc(p, halfStraightMm, radiusMm),
-      nearestOnLeftArc(p, halfStraightMm, radiusMm),
-  };
-
+  const CoursePoint p = sensorPointFromPose(state.pose, params.sensorBaseMm);
   const double fwdX = std::cos(state.pose.thetaRad);
   const double fwdY = std::sin(state.pose.thetaRad);
-  CourseCandidate nearest = candidates[0];
-  bool hasForwardCompatible = false;
-  double bestScore = 1e30;
+  const double sHintMm = hasPrevCourseProgress ? prevCourseProgressMm : -1.0;
+  const Course::Projection nearest =
+      course.project(p, CoursePoint{fwdX, fwdY}, sHintMm, 1.0);
 
-  for (size_t i = 0; i < candidates.size(); ++i) {
-    const auto& c = candidates[i];
-    const double d2 = dist2(p, c.point);
-    const double headingAlign = c.tangent.x * fwdX + c.tangent.y * fwdY;
-    const bool forwardCompatible = (headingAlign >= -0.15);
-    if (!forwardCompatible && hasForwardCompatible) {
-      continue;
-    }
-    const double headingPenalty = (headingAlign >= 0.0) ? 0.0 : (1.0 - headingAlign) * radiusMm;
-    const double score = d2 + headingPenalty * headingPenalty;
-    if (!hasForwardCompatible || forwardCompatible) {
-      if (!hasForwardCompatible || score < bestScore) {
-        nearest = c;
-        bestScore = score;
-      }
-      if (forwardCompatible) {
-        hasForwardCompatible = true;
-      }
-    }
-  }
-
-  const double dx = nearest.point.x - p.x;
-  const double dy = nearest.point.y - p.y;
+  const double dx = nearest.point.xMm - p.xMm;
+  const double dy = nearest.point.yMm - p.yMm;
   const double rightX = std::sin(state.pose.thetaRad);
   const double rightY = -std::cos(state.pose.thetaRad);
   // Sensor X-axis treats right side as positive, so project onto vehicle-right.
@@ -444,74 +352,12 @@ Run::CourseRelativePose Run::computeLineRelativePose() const {
 }
 
 double Run::computeCourseProgressMm() const {
-  const double straightLengthMm = std::max(params.courseStraightLengthMm, 1.0);
-  const double radiusMm = std::max(params.courseCurveRadiusMm, 1.0);
-  const double halfStraightMm = straightLengthMm * 0.5;
-  const double lapLengthMm = 2.0 * straightLengthMm + 2.0 * kPi * radiusMm;
-
-  const Point2 p{state.pose.xMm, state.pose.yMm};
-  const Point2 lowerA{-halfStraightMm, 0.0};
-  const Point2 lowerB{halfStraightMm, 0.0};
-  const Point2 upperA{halfStraightMm, 2.0 * radiusMm};
-  const Point2 upperB{-halfStraightMm, 2.0 * radiusMm};
-
-  const std::array<CourseCandidate, 4> candidates{
-      nearestOnSegment(p, lowerA, lowerB),
-      nearestOnSegment(p, upperA, upperB),
-      nearestOnRightArc(p, halfStraightMm, radiusMm),
-      nearestOnLeftArc(p, halfStraightMm, radiusMm),
-  };
-
   const double fwdX = std::cos(state.pose.thetaRad);
   const double fwdY = std::sin(state.pose.thetaRad);
-  CourseCandidate nearest = candidates[0];
-  bool hasForwardCompatible = false;
-  double bestScore = 1e30;
-
-  for (size_t i = 0; i < candidates.size(); ++i) {
-    const auto& c = candidates[i];
-    const double d2 = dist2(p, c.point);
-    const double headingAlign = c.tangent.x * fwdX + c.tangent.y * fwdY;
-    const bool forwardCompatible = (headingAlign >= -0.15);
-    if (!forwardCompatible && hasForwardCompatible) {
-      continue;
-    }
-    const double headingPenalty = (headingAlign >= 0.0) ? 0.0 : (1.0 - headingAlign) * radiusMm;
-    const double score = d2 + headingPenalty * headingPenalty;
-    if (!hasForwardCompatible || forwardCompatible) {
-      if (!hasForwardCompatible || score < bestScore) {
-        nearest = c;
-        bestScore = score;
-      }
-      if (forwardCompatible) {
-        hasForwardCompatible = true;
-      }
-    }
-  }
-
-  double sMm = 0.0;
-  const double qx = nearest.point.x;
-  const double qy = nearest.point.y;
-  if (std::abs(qy) < 1e-6) {
-    sMm = (qx >= 0.0) ? qx : (lapLengthMm + qx);
-  } else if (std::abs(qy - 2.0 * radiusMm) < 1e-6) {
-    sMm = halfStraightMm + kPi * radiusMm + (halfStraightMm - qx);
-  } else if (qx >= halfStraightMm) {
-    const double ang = std::atan2(qy - radiusMm, qx - halfStraightMm);
-    sMm = halfStraightMm + radiusMm * (ang + kPi * 0.5);
-  } else {
-    double ang = std::atan2(qy - radiusMm, qx + halfStraightMm);
-    if (ang < kPi * 0.5) {
-      ang += 2.0 * kPi;
-    }
-    sMm = halfStraightMm + kPi * radiusMm + straightLengthMm + radiusMm * (ang - kPi * 0.5);
-  }
-
-  sMm = std::fmod(sMm, lapLengthMm);
-  if (sMm < 0.0) {
-    sMm += lapLengthMm;
-  }
-  return sMm;
+  const double sHintMm = hasPrevCourseProgress ? prevCourseProgressMm : -1.0;
+  const Course::Projection projection =
+      course.project(CoursePoint{state.pose.xMm, state.pose.yMm}, CoursePoint{fwdX, fwdY}, sHintMm, 1.0);
+  return projection.sMm;
 }
 
 double Run::sampleSpeedPlanVelocityMmS(double distanceMm) const {
@@ -560,16 +406,14 @@ void Run::maybeRecordOdometryTracePose() {
 }
 
 void Run::maybeBuildSpeedPlanFromFirstLap() {
-  if (!options.odometryTraceMode || speedPlanReady || lapCount < 1) {
+  if (!options.odometryTraceMode || speedPlanReady || lapCount < 2) {
     return;
   }
   if (odometryTracePoints.size() < 3) {
     return;
   }
 
-  const double straightLengthMm = std::max(params.courseStraightLengthMm, 1.0);
-  const double radiusMm = std::max(params.courseCurveRadiusMm, 1.0);
-  const double lapLengthMm = 2.0 * straightLengthMm + 2.0 * kPi * radiusMm;
+  const double lapLengthMm = std::max(course.lengthMm(), 1.0);
   if (lapLengthMm <= 1e-9) {
     return;
   }
@@ -599,34 +443,143 @@ void Run::maybeBuildSpeedPlanFromFirstLap() {
     return;
   }
 
-  speedPlanDistanceMm.assign(lapTrace.size(), 0.0);
+  std::vector<double> lapTraceSUnwrapped;
+  lapTraceSUnwrapped.reserve(lapTrace.size());
+  bool hasPrevS = false;
+  double prevSWrapped = 0.0;
+  double prevSUnwrapped = 0.0;
+  for (size_t i = 0; i < lapTrace.size(); ++i) {
+    const Pose& p = lapTrace[i];
+    const Pose& p0 = (i > 0) ? lapTrace[i - 1] : lapTrace[i];
+    const Pose& p1 = (i + 1 < lapTrace.size()) ? lapTrace[i + 1] : lapTrace[i];
+    const double hxRaw = p1.xMm - p0.xMm;
+    const double hyRaw = p1.yMm - p0.yMm;
+    const double hNorm = std::hypot(hxRaw, hyRaw);
+    const CoursePoint heading = (hNorm > 1e-9)
+                                    ? CoursePoint{hxRaw / hNorm, hyRaw / hNorm}
+                                    : CoursePoint{std::cos(p.thetaRad), std::sin(p.thetaRad)};
+    const double sHint = hasPrevS ? prevSWrapped : -1.0;
+    const Course::Projection proj =
+        course.project(CoursePoint{p.xMm, p.yMm}, heading, sHint, 2.0);
+    const double sWrapped = proj.sMm;
+    if (!hasPrevS) {
+      prevSWrapped = sWrapped;
+      prevSUnwrapped = sWrapped;
+      lapTraceSUnwrapped.push_back(prevSUnwrapped);
+      hasPrevS = true;
+      continue;
+    }
+    double deltaS = sWrapped - prevSWrapped;
+    if (deltaS < -0.5 * lapLengthMm) {
+      deltaS += lapLengthMm;
+    } else if (deltaS > 0.5 * lapLengthMm) {
+      deltaS -= lapLengthMm;
+    }
+    prevSUnwrapped += deltaS;
+    if (prevSUnwrapped < lapTraceSUnwrapped.back()) {
+      prevSUnwrapped = lapTraceSUnwrapped.back();
+    }
+    lapTraceSUnwrapped.push_back(prevSUnwrapped);
+    prevSWrapped = sWrapped;
+  }
+  if (lapTraceSUnwrapped.size() != lapTrace.size()) {
+    return;
+  }
+  std::vector<double> lapTraceDistanceMm(lapTrace.size(), 0.0);
   for (size_t i = 1; i < lapTrace.size(); ++i) {
     const double ds = std::hypot(
         lapTrace[i].xMm - lapTrace[i - 1].xMm,
         lapTrace[i].yMm - lapTrace[i - 1].yMm);
-    speedPlanDistanceMm[i] = speedPlanDistanceMm[i - 1] + ds;
+    lapTraceDistanceMm[i] = lapTraceDistanceMm[i - 1] + ds;
   }
+  const double classifyStepMm = lapTraceDistanceMm.size() > 1
+                                    ? std::max(lapTraceDistanceMm.back() / (lapTraceDistanceMm.size() - 1), 1.0)
+                                    : 10.0;
+  const std::vector<int> lapTraceSegmentTypes =
+      classifyOdometrySegmentTypes(lapTrace, classifyStepMm);
 
-  const double stepMm = speedPlanDistanceMm.size() > 1
-                            ? std::max(speedPlanDistanceMm.back() / (speedPlanDistanceMm.size() - 1), 1.0)
-                            : 10.0;
-  speedPlanSegmentTypes = classifyOdometrySegmentTypes(lapTrace, stepMm);
+  const double planStepMm = std::max(params.courseResampleStepMm, 1.0);
+  const size_t planPointCount = static_cast<size_t>(std::ceil(lapLengthMm / planStepMm)) + 1;
+  speedPlanDistanceMm.assign(planPointCount, 0.0);
+  for (size_t i = 0; i < planPointCount; ++i) {
+    speedPlanDistanceMm[i] = std::min(static_cast<double>(i) * planStepMm, lapLengthMm);
+  }
+  speedPlanSegmentTypes.assign((planPointCount > 0) ? (planPointCount - 1) : 0, 0);
+  auto markCurveSpan = [&](double sStartMm, double sLengthMm) {
+    if (speedPlanSegmentTypes.empty() || sLengthMm <= 0.0) {
+      return;
+    }
+    double remain = sLengthMm;
+    double start = std::fmod(sStartMm, lapLengthMm);
+    if (start < 0.0) {
+      start += lapLengthMm;
+    }
+    while (remain > 1e-9) {
+      const double localEnd = std::min(lapLengthMm, start + remain);
+      const int k0 = std::clamp(static_cast<int>(std::floor(start / planStepMm)), 0,
+                                static_cast<int>(speedPlanSegmentTypes.size() - 1));
+      const int k1 = std::clamp(static_cast<int>(std::ceil(localEnd / planStepMm)) - 1, 0,
+                                static_cast<int>(speedPlanSegmentTypes.size() - 1));
+      for (int k = k0; k <= k1; ++k) {
+        speedPlanSegmentTypes[static_cast<size_t>(k)] = 1;
+      }
+      remain -= (localEnd - start);
+      start = 0.0;
+    }
+  };
+  for (size_t i = 0; i + 1 < lapTraceSUnwrapped.size() && i < lapTraceSegmentTypes.size(); ++i) {
+    if (lapTraceSegmentTypes[i] == 0) {
+      continue;
+    }
+    const double deltaS = lapTraceSUnwrapped[i + 1] - lapTraceSUnwrapped[i];
+    if (deltaS <= 0.0) {
+      continue;
+    }
+    markCurveSpan(lapTraceSUnwrapped[i], deltaS);
+  }
 
   const double maxVelocityMmS = std::max(params.vehicleMaxVelocityMmS, 0.0);
   const double curveVelocityMmS = std::clamp(params.desiredVelocityMmS, 0.0, maxVelocityMmS);
-  std::vector<double> velocityLimitMmS(lapTrace.size(), maxVelocityMmS);
-  for (size_t i = 0; i < lapTrace.size(); ++i) {
+  const double accelMmSS = std::max(params.accelerationMmSS, 1e-6);
+  const double brakeDistanceMm =
+      std::max(0.0, (maxVelocityMmS * maxVelocityMmS - curveVelocityMmS * curveVelocityMmS) / (2.0 * accelMmSS));
+  const int curvePrePadSegments =
+      static_cast<int>(std::ceil((brakeDistanceMm + 40.0) / std::max(planStepMm, 1e-6)));
+  const int curvePostPadSegments =
+      static_cast<int>(std::ceil(30.0 / std::max(planStepMm, 1e-6)));
+  if (!speedPlanSegmentTypes.empty() && (curvePrePadSegments > 0 || curvePostPadSegments > 0)) {
+    std::vector<int> padded = speedPlanSegmentTypes;
+    const int n = static_cast<int>(speedPlanSegmentTypes.size());
+    for (int i = 0; i < n; ++i) {
+      if (speedPlanSegmentTypes[static_cast<size_t>(i)] == 0) {
+        continue;
+      }
+      for (int d = -curvePrePadSegments; d <= curvePostPadSegments; ++d) {
+        int j = i + d;
+        while (j < 0) {
+          j += n;
+        }
+        while (j >= n) {
+          j -= n;
+        }
+        padded[static_cast<size_t>(j)] = 1;
+      }
+    }
+    speedPlanSegmentTypes.swap(padded);
+  }
+
+  std::vector<double> velocityLimitMmS(speedPlanDistanceMm.size(), maxVelocityMmS);
+  for (size_t i = 0; i < speedPlanDistanceMm.size(); ++i) {
     const bool leftCurve = (i > 0 && speedPlanSegmentTypes[i - 1] != 0);
-    const bool rightCurve = (i + 1 < lapTrace.size() && speedPlanSegmentTypes[i] != 0);
+    const bool rightCurve = (i < speedPlanSegmentTypes.size() && speedPlanSegmentTypes[i] != 0);
     if (leftCurve || rightCurve) {
       velocityLimitMmS[i] = curveVelocityMmS;
     }
   }
 
-  const double accelMmSS = std::max(params.accelerationMmSS, 1e-6);
-  speedPlanVelocityMmS.assign(lapTrace.size(), 0.0);
+  speedPlanVelocityMmS.assign(speedPlanDistanceMm.size(), 0.0);
   speedPlanVelocityMmS[0] = std::min(curveVelocityMmS, velocityLimitMmS[0]);
-  for (size_t i = 1; i < lapTrace.size(); ++i) {
+  for (size_t i = 1; i < speedPlanDistanceMm.size(); ++i) {
     const double ds = std::max(speedPlanDistanceMm[i] - speedPlanDistanceMm[i - 1], 0.0);
     const double reachable = std::sqrt(std::max(
         0.0, speedPlanVelocityMmS[i - 1] * speedPlanVelocityMmS[i - 1] + 2.0 * accelMmSS * ds));
@@ -636,14 +589,14 @@ void Run::maybeBuildSpeedPlanFromFirstLap() {
   const double endVelocityTargetMmS = speedPlanVelocityMmS[0];
   speedPlanVelocityMmS.back() =
       std::min(speedPlanVelocityMmS.back(), std::min(velocityLimitMmS.back(), endVelocityTargetMmS));
-  for (size_t i = lapTrace.size() - 1; i > 0; --i) {
+  for (size_t i = speedPlanDistanceMm.size() - 1; i > 0; --i) {
     const double ds = std::max(speedPlanDistanceMm[i] - speedPlanDistanceMm[i - 1], 0.0);
     const double reachable = std::sqrt(std::max(
         0.0, speedPlanVelocityMmS[i] * speedPlanVelocityMmS[i] + 2.0 * accelMmSS * ds));
     speedPlanVelocityMmS[i - 1] =
         std::min(velocityLimitMmS[i - 1], std::min(speedPlanVelocityMmS[i - 1], reachable));
   }
-  for (size_t i = 1; i < lapTrace.size(); ++i) {
+  for (size_t i = 1; i < speedPlanDistanceMm.size(); ++i) {
     const double ds = std::max(speedPlanDistanceMm[i] - speedPlanDistanceMm[i - 1], 0.0);
     const double reachable = std::sqrt(std::max(
         0.0, speedPlanVelocityMmS[i - 1] * speedPlanVelocityMmS[i - 1] + 2.0 * accelMmSS * ds));
@@ -706,14 +659,24 @@ void Run::publishOdometry() {
   msg << "\"y\":" << state.pose.yMm << ',';
   msg << "\"theta\":" << state.pose.thetaRad;
   msg << "},";
-  const Point2 sensorPose = sensorPointFromPose(state.pose, params.sensorBaseMm);
+  const CoursePoint sensorPose = sensorPointFromPose(state.pose, params.sensorBaseMm);
   msg << "\"poseSensor\":{";
-  msg << "\"x\":" << sensorPose.x << ',';
-  msg << "\"y\":" << sensorPose.y;
+  msg << "\"x\":" << sensorPose.xMm << ',';
+  msg << "\"y\":" << sensorPose.yMm;
   msg << "},";
   msg << "\"course\":{";
   msg << "\"straightLength\":" << params.courseStraightLengthMm << ',';
-  msg << "\"curveRadius\":" << params.courseCurveRadiusMm;
+  msg << "\"curveRadius\":" << params.courseCurveRadiusMm << ',';
+  msg << "\"length\":" << course.lengthMm() << ',';
+  msg << "\"polyline\":[";
+  const auto& coursePoints = course.points();
+  for (size_t i = 0; i < coursePoints.size(); ++i) {
+    if (i != 0) {
+      msg << ',';
+    }
+    msg << "{\"x\":" << coursePoints[i].xMm << ",\"y\":" << coursePoints[i].yMm << '}';
+  }
+  msg << "]";
   msg << "},";
   msg << "\"params\":{";
   msg << "\"vehicle_max_velocity_mm_s\":" << params.vehicleMaxVelocityMmS << ',';
@@ -724,6 +687,8 @@ void Run::publishOdometry() {
   msg << "\"sensor_base_mm\":" << params.sensorBaseMm << ',';
   msg << "\"course_straight_length_mm\":" << params.courseStraightLengthMm << ',';
   msg << "\"course_curve_radius_mm\":" << params.courseCurveRadiusMm << ',';
+  msg << "\"course_resample_step_mm\":" << params.courseResampleStepMm << ',';
+  msg << "\"course_file\":\"" << params.courseFile << "\",";
   msg << "\"white_line_offset_mm\":" << params.whiteLineOffsetMm << ',';
   msg << "\"line_kp\":" << params.lineKp << ',';
   msg << "\"line_ki\":" << params.lineKi << ',';
@@ -800,8 +765,8 @@ void Run::renderConsole() const {
   std::cout << "Motor V L/R [V]      : " << state.vmotLV << " / " << state.vmotRV << '\n';
   std::cout << "Motor I L/R [A]      : " << state.iLA << " / " << state.iRA << '\n';
   std::cout << "Pose x,y [mm]        : " << state.pose.xMm << ", " << state.pose.yMm << '\n';
-  const Point2 sensorPose = sensorPointFromPose(state.pose, params.sensorBaseMm);
-  std::cout << "Sensor x,y [mm]      : " << sensorPose.x << ", " << sensorPose.y << '\n';
+  const CoursePoint sensorPose = sensorPointFromPose(state.pose, params.sensorBaseMm);
+  std::cout << "Sensor x,y [mm]      : " << sensorPose.xMm << ", " << sensorPose.yMm << '\n';
   std::cout << "Pose theta [rad]     : " << state.pose.thetaRad << '\n';
   std::cout << "Wheel v L/R [mm/s]   : " << state.vLMmS << " / " << state.vRMmS << '\n';
   std::cout << "PWM Duty L/R         : " << state.dutyL << " / " << state.dutyR << '\n';

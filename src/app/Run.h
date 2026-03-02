@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/common/Types.h"
+#include "core/course/Course.h"
 #include "core/cpu/Cpu.h"
 #include "core/Sensor/BatterySensor.h"
 #include "core/Sensor/Encoder.h"
@@ -42,6 +43,7 @@ class Run {
 
   SimParams params;
   RunOptions options;
+  Course course;
   Battery battery;
   VehicleState state;
   Encoder encoder;
@@ -57,11 +59,15 @@ class Run {
   MotorStepResult motorRightResult;
   LineSensorReading lineReading;
   std::string lineAscii;
+  bool lineDetectedStable{false};
+  int lineDetectHitCount{0};
+  int lineDetectMissCount{0};
 
   int reconnectCounter{0};
-  int lapCount{0};
+  int lapCount{1};
   bool hasPrevCourseProgress{false};
   double prevCourseProgressMm{0.0};
+  double courseProgressAccumulatedMm{0.0};
   double totalDistanceMm{0.0};
   std::vector<Pose> odometryTracePoints;
   double nextOdometrySampleDistanceMm{0.0};

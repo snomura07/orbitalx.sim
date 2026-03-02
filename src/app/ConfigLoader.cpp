@@ -30,6 +30,7 @@ bool assignParam(SimParams& p, const std::string& key, double val) {
   else if (key == "white_line_offset_mm") p.whiteLineOffsetMm = val;
   else if (key == "course_straight_length_mm") p.courseStraightLengthMm = val;
   else if (key == "course_curve_radius_mm") p.courseCurveRadiusMm = val;
+  else if (key == "course_resample_step_mm") p.courseResampleStepMm = val;
   else if (key == "pwm_max") p.pwmMax = val;
   else if (key == "motor_R_ohm") p.motorROhm = val;
   else if (key == "motor_Kt_Nm_A") p.motorKtNmA = val;
@@ -69,6 +70,10 @@ bool assignStringParam(SimParams& p, const std::string& key, const std::string& 
   }
   if (key == "ws_path") {
     p.wsPath = value;
+    return true;
+  }
+  if (key == "course_file") {
+    p.courseFile = value;
     return true;
   }
   return false;

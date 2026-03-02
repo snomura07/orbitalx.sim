@@ -22,4 +22,3 @@ class LineSensor {
 
   std::array<double, 15> sensorXMm{};
 };
-

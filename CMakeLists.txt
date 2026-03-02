@@ -12,6 +12,7 @@ add_executable(orbitalx_sim
   src/core/plant/battery/Battery.cpp
   src/core/plant/motor/Motor.cpp
   src/core/cpu/Cpu.cpp
+  src/core/course/Course.cpp
   src/core/io/WsClient.cpp
   src/core/Sensor/BatterySensor.cpp
   src/core/Sensor/Encoder.cpp

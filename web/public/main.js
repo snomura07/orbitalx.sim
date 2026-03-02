@@ -60,6 +60,47 @@ for (let i = 0; i < 15; i += 1) {
   lineBars.appendChild(bar);
 }
 
+function drawCourseOutline(context, latest, xOf, yOf) {
+  const polyline = Array.isArray(latest?.course?.polyline) ? latest.course.polyline : [];
+  context.strokeStyle = "#94a3b8";
+  context.lineWidth = 2;
+  context.setLineDash([7, 5]);
+  context.beginPath();
+
+  if (polyline.length >= 2) {
+    context.moveTo(xOf(Number(polyline[0].x)), yOf(Number(polyline[0].y)));
+    for (let i = 1; i < polyline.length; i += 1) {
+      context.lineTo(xOf(Number(polyline[i].x)), yOf(Number(polyline[i].y)));
+    }
+  } else {
+    const straightLength = Number(latest?.course?.straightLength ?? 5000);
+    const curveRadius = Number(latest?.course?.curveRadius ?? 300);
+    const halfStraight = straightLength * 0.5;
+    const arcSegments = 48;
+    context.moveTo(xOf(-halfStraight), yOf(0));
+    context.lineTo(xOf(halfStraight), yOf(0));
+    for (let i = 0; i <= arcSegments; i += 1) {
+      const t = -Math.PI / 2 + (Math.PI * i) / arcSegments;
+      context.lineTo(
+        xOf(halfStraight + curveRadius * Math.cos(t)),
+        yOf(curveRadius + curveRadius * Math.sin(t)),
+      );
+    }
+    context.lineTo(xOf(-halfStraight), yOf(2 * curveRadius));
+    for (let i = 0; i <= arcSegments; i += 1) {
+      const t = Math.PI / 2 + (Math.PI * i) / arcSegments;
+      context.lineTo(
+        xOf(-halfStraight + curveRadius * Math.cos(t)),
+        yOf(curveRadius + curveRadius * Math.sin(t)),
+      );
+    }
+    context.closePath();
+  }
+
+  context.stroke();
+  context.setLineDash([]);
+}
+
 function drawVelocityChart(windowSec) {
   const now = history.length ? history[history.length - 1].ts : 0;
   const startTs = now - windowSec;
@@ -207,38 +248,7 @@ function drawPoseChart(windowSec) {
   poseCtx.restore();
 
   const latest = data[data.length - 1];
-  const straightLength = Number(latest?.course?.straightLength ?? 5000);
-  const curveRadius = Number(latest?.course?.curveRadius ?? 300);
-  const halfStraight = straightLength * 0.5;
-
-  poseCtx.strokeStyle = "#94a3b8";
-  poseCtx.lineWidth = 2;
-  poseCtx.setLineDash([7, 5]);
-  poseCtx.beginPath();
-
-  const arcSegments = 48;
-  const moveToPoint = (x, y) => {
-    poseCtx.moveTo(xOf(x), yOf(y));
-  };
-  const lineToPoint = (x, y) => {
-    poseCtx.lineTo(xOf(x), yOf(y));
-  };
-
-  moveToPoint(-halfStraight, 0);
-  lineToPoint(halfStraight, 0);
-  for (let i = 0; i <= arcSegments; i += 1) {
-    const t = -Math.PI / 2 + (Math.PI * i) / arcSegments;
-    lineToPoint(halfStraight + curveRadius * Math.cos(t), curveRadius + curveRadius * Math.sin(t));
-  }
-  lineToPoint(-halfStraight, 2 * curveRadius);
-  for (let i = 0; i <= arcSegments; i += 1) {
-    const t = Math.PI / 2 + (Math.PI * i) / arcSegments;
-    lineToPoint(-halfStraight + curveRadius * Math.cos(t), curveRadius + curveRadius * Math.sin(t));
-  }
-
-  poseCtx.closePath();
-  poseCtx.stroke();
-  poseCtx.setLineDash([]);
+  drawCourseOutline(poseCtx, latest, xOf, yOf);
 
   poseCtx.strokeStyle = "#155e75";
   poseCtx.lineWidth = 2;
@@ -365,35 +375,7 @@ function drawOdometryChart() {
   odometryCtx.fillText("Y [mm]", 0, 0);
   odometryCtx.restore();
 
-  const straightLength = Number(latest?.course?.straightLength ?? 5000);
-  const curveRadius = Number(latest?.course?.curveRadius ?? 300);
-  const halfStraight = straightLength * 0.5;
-
-  odometryCtx.strokeStyle = "#94a3b8";
-  odometryCtx.lineWidth = 2;
-  odometryCtx.setLineDash([7, 5]);
-  odometryCtx.beginPath();
-  const arcSegments = 48;
-  const moveToPoint = (x, y) => {
-    odometryCtx.moveTo(xOf(x), yOf(y));
-  };
-  const lineToPoint = (x, y) => {
-    odometryCtx.lineTo(xOf(x), yOf(y));
-  };
-  moveToPoint(-halfStraight, 0);
-  lineToPoint(halfStraight, 0);
-  for (let i = 0; i <= arcSegments; i += 1) {
-    const t = -Math.PI / 2 + (Math.PI * i) / arcSegments;
-    lineToPoint(halfStraight + curveRadius * Math.cos(t), curveRadius + curveRadius * Math.sin(t));
-  }
-  lineToPoint(-halfStraight, 2 * curveRadius);
-  for (let i = 0; i <= arcSegments; i += 1) {
-    const t = Math.PI / 2 + (Math.PI * i) / arcSegments;
-    lineToPoint(-halfStraight + curveRadius * Math.cos(t), curveRadius + curveRadius * Math.sin(t));
-  }
-  odometryCtx.closePath();
-  odometryCtx.stroke();
-  odometryCtx.setLineDash([]);
+  drawCourseOutline(odometryCtx, latest, xOf, yOf);
 
   const trace = Array.isArray(latest.odometryTracePoints) ? latest.odometryTracePoints : [];
   if (trace.length < 2) {

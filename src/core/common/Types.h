@@ -42,6 +42,7 @@ struct SimParams {
   double whiteLineOffsetMm{0.0};
   double courseStraightLengthMm{5000.0};
   double courseCurveRadiusMm{300.0};
+  double courseResampleStepMm{10.0};
   double lineSensorLongitudinalWindowMm{60.0};
 
   double pwmMax{1500.0};
@@ -79,4 +80,5 @@ struct SimParams {
   std::string wsHost{"web"};
   int wsPort{8080};
   std::string wsPath{"/ingest"};
+  std::string courseFile{};
 };
