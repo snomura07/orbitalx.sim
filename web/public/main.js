@@ -29,6 +29,8 @@ const poseCanvas = document.getElementById("poseChart");
 const poseCtx = poseCanvas.getContext("2d");
 const odometryCanvas = document.getElementById("odometryChart");
 const odometryCtx = odometryCanvas.getContext("2d");
+const speedPlanCanvas = document.getElementById("speedPlanChart");
+const speedPlanCtx = speedPlanCanvas.getContext("2d");
 const vehicleSprite = new Image();
 let vehicleSpriteReady = false;
 vehicleSprite.onload = () => {
@@ -398,7 +400,7 @@ function drawOdometryChart() {
     odometryCtx.fillStyle = "#64748b";
     odometryCtx.textAlign = "left";
     odometryCtx.textBaseline = "top";
-    odometryCtx.fillText("Run with --odo to collect odometry trace.", pad.left + 8, pad.top + 8);
+    odometryCtx.fillText("Run with --stg to collect odometry trace.", pad.left + 8, pad.top + 8);
     return;
   }
   const segState = Array.isArray(latest.odometrySegmentTypes) ? latest.odometrySegmentTypes : [];
@@ -426,6 +428,80 @@ function drawOdometryChart() {
   odometryCtx.beginPath();
   odometryCtx.arc(xOf(Number(last.x)), yOf(Number(last.y)), 4, 0, Math.PI * 2);
   odometryCtx.fill();
+}
+
+function drawSpeedPlanChart() {
+  resizeCanvasToDisplaySize(speedPlanCanvas, speedPlanCtx);
+  const latest = history.length ? history[history.length - 1] : null;
+  const canvasW = speedPlanCanvas.clientWidth;
+  const canvasH = speedPlanCanvas.clientHeight;
+  speedPlanCtx.clearRect(0, 0, canvasW, canvasH);
+  speedPlanCtx.fillStyle = "#f7fafc";
+  speedPlanCtx.fillRect(0, 0, canvasW, canvasH);
+
+  const dist = Array.isArray(latest?.speedPlanDistanceMm) ? latest.speedPlanDistanceMm : [];
+  const vel = Array.isArray(latest?.speedPlanVelocityMmS) ? latest.speedPlanVelocityMmS : [];
+  if (dist.length < 2 || vel.length < 2 || dist.length !== vel.length) {
+    speedPlanCtx.font = "12px IBM Plex Sans, sans-serif";
+    speedPlanCtx.fillStyle = "#64748b";
+    speedPlanCtx.textAlign = "left";
+    speedPlanCtx.textBaseline = "top";
+    speedPlanCtx.fillText("Speed plan will appear after first lap.", 14, 14);
+    return;
+  }
+
+  const xMax = Math.max(Number(dist[dist.length - 1]), 1);
+  const yMax = Math.max(
+    ...vel.map((v) => Number(v)),
+    Number(latest?.params?.vehicle_max_velocity_mm_s ?? 1),
+    1,
+  ) * 1.08;
+  const pad = { left: 56, right: 16, top: 16, bottom: 34 };
+  const w = canvasW - pad.left - pad.right;
+  const h = canvasH - pad.top - pad.bottom;
+  const xOf = (s) => pad.left + (Number(s) / xMax) * w;
+  const yOf = (v) => pad.top + h - (Number(v) / yMax) * h;
+
+  speedPlanCtx.font = "11px IBM Plex Sans, sans-serif";
+  speedPlanCtx.fillStyle = "#6b7280";
+  speedPlanCtx.textAlign = "right";
+  speedPlanCtx.textBaseline = "middle";
+  speedPlanCtx.strokeStyle = "#e5e7eb";
+  speedPlanCtx.lineWidth = 1;
+  for (let i = 0; i <= 4; i += 1) {
+    const y = pad.top + (h / 4) * i;
+    const tick = yMax - ((yMax * i) / 4);
+    speedPlanCtx.beginPath();
+    speedPlanCtx.moveTo(pad.left, y);
+    speedPlanCtx.lineTo(pad.left + w, y);
+    speedPlanCtx.stroke();
+    speedPlanCtx.fillText(tick.toFixed(0), pad.left - 8, y);
+  }
+
+  speedPlanCtx.textAlign = "center";
+  speedPlanCtx.textBaseline = "top";
+  speedPlanCtx.fillText("0", pad.left, pad.top + h + 6);
+  speedPlanCtx.fillText(xMax.toFixed(0), pad.left + w, pad.top + h + 6);
+  speedPlanCtx.fillText("Distance [mm]", pad.left + w * 0.5, canvasH - 14);
+
+  speedPlanCtx.save();
+  speedPlanCtx.translate(16, pad.top + h * 0.5);
+  speedPlanCtx.rotate(-Math.PI / 2);
+  speedPlanCtx.textAlign = "center";
+  speedPlanCtx.textBaseline = "top";
+  speedPlanCtx.fillText("Velocity [mm/s]", 0, 0);
+  speedPlanCtx.restore();
+
+  speedPlanCtx.lineWidth = 2;
+  speedPlanCtx.strokeStyle = "#0f766e";
+  speedPlanCtx.beginPath();
+  for (let i = 0; i < dist.length; i += 1) {
+    const x = xOf(dist[i]);
+    const y = yOf(vel[i]);
+    if (i === 0) speedPlanCtx.moveTo(x, y);
+    else speedPlanCtx.lineTo(x, y);
+  }
+  speedPlanCtx.stroke();
 }
 
 function drawOmegaChart(windowSec) {
@@ -621,6 +697,7 @@ function render(data) {
   drawBatteryChart(Number(windowSecSelect.value));
   drawPoseChart(Number(windowSecSelect.value));
   drawOdometryChart();
+  drawSpeedPlanChart();
 }
 
 windowSecSelect.addEventListener("change", () => {
@@ -629,6 +706,7 @@ windowSecSelect.addEventListener("change", () => {
   drawBatteryChart(Number(windowSecSelect.value));
   drawPoseChart(Number(windowSecSelect.value));
   drawOdometryChart();
+  drawSpeedPlanChart();
 });
 
 [xMinInput, xMaxInput, yMinInput, yMaxInput].forEach((el) => {
@@ -641,6 +719,7 @@ windowSecSelect.addEventListener("change", () => {
 window.addEventListener("resize", () => {
   drawPoseChart(Number(windowSecSelect.value));
   drawOdometryChart();
+  drawSpeedPlanChart();
 });
 
 ws.addEventListener("message", (ev) => {

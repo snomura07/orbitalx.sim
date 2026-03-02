@@ -10,7 +10,7 @@ int main(int argc, char** argv) {
   RunOptions options;
   for (int i = 1; i < argc; ++i) {
     const std::string arg = argv[i];
-    if (arg == "--odo") {
+    if (arg == "--stg") {
       options.odometryTraceMode = true;
       continue;
     }

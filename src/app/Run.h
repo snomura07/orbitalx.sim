@@ -35,6 +35,7 @@ class Run {
   CourseRelativePose computeLineRelativePose() const;
   double computeCourseProgressMm() const;
   void maybeRecordOdometryTracePose();
+  void maybeBuildSpeedPlanFromFirstLap();
   void publishOdometry();
   void renderConsole() const;
 
@@ -63,6 +64,10 @@ class Run {
   double totalDistanceMm{0.0};
   std::vector<Pose> odometryTracePoints;
   double nextOdometrySampleDistanceMm{0.0};
+  bool speedPlanReady{false};
+  std::vector<double> speedPlanDistanceMm;
+  std::vector<double> speedPlanVelocityMmS;
+  std::vector<int> speedPlanSegmentTypes;
   double elapsedS{0.0};
   double dtS{0.01};
 };

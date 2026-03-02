@@ -59,6 +59,14 @@ double wrapAngleRad(double a) {
   return x;
 }
 
+Pose lerpPose(const Pose& a, const Pose& b, double t) {
+  return Pose{
+      a.xMm + (b.xMm - a.xMm) * t,
+      a.yMm + (b.yMm - a.yMm) * t,
+      a.thetaRad + wrapAngleRad(b.thetaRad - a.thetaRad) * t,
+  };
+}
+
 std::vector<int> classifyOdometrySegmentTypes(const std::vector<Pose>& trace, double stepMm) {
   const size_t n = trace.size();
   if (n < 2) {
@@ -223,6 +231,10 @@ int Run::run() {
   totalDistanceMm = 0.0;
   odometryTracePoints.clear();
   nextOdometrySampleDistanceMm = 0.0;
+  speedPlanReady = false;
+  speedPlanDistanceMm.clear();
+  speedPlanVelocityMmS.clear();
+  speedPlanSegmentTypes.clear();
   if (options.odometryTraceMode) {
     odometryTracePoints.push_back(state.pose);
     nextOdometrySampleDistanceMm = 10.0;
@@ -239,6 +251,7 @@ int Run::run() {
     updateBattery();
     updateSensors();
     updateLapCounter();
+    maybeBuildSpeedPlanFromFirstLap();
     if (options.odometryTraceMode && lapCount > 1) {
       gKeepRunning = 0;
     }
@@ -505,6 +518,101 @@ void Run::maybeRecordOdometryTracePose() {
   }
 }
 
+void Run::maybeBuildSpeedPlanFromFirstLap() {
+  if (!options.odometryTraceMode || speedPlanReady || lapCount < 1) {
+    return;
+  }
+  if (odometryTracePoints.size() < 3) {
+    return;
+  }
+
+  const double straightLengthMm = std::max(params.courseStraightLengthMm, 1.0);
+  const double radiusMm = std::max(params.courseCurveRadiusMm, 1.0);
+  const double lapLengthMm = 2.0 * straightLengthMm + 2.0 * kPi * radiusMm;
+  if (lapLengthMm <= 1e-9) {
+    return;
+  }
+
+  std::vector<Pose> lapTrace;
+  lapTrace.reserve(odometryTracePoints.size());
+  lapTrace.push_back(odometryTracePoints.front());
+  double accumulatedMm = 0.0;
+  for (size_t i = 1; i < odometryTracePoints.size(); ++i) {
+    const Pose& prev = odometryTracePoints[i - 1];
+    const Pose& curr = odometryTracePoints[i];
+    const double ds = std::hypot(curr.xMm - prev.xMm, curr.yMm - prev.yMm);
+    if (ds <= 1e-9) {
+      continue;
+    }
+    if (accumulatedMm + ds >= lapLengthMm) {
+      const double remain = lapLengthMm - accumulatedMm;
+      const double t = std::clamp(remain / ds, 0.0, 1.0);
+      lapTrace.push_back(lerpPose(prev, curr, t));
+      accumulatedMm = lapLengthMm;
+      break;
+    }
+    lapTrace.push_back(curr);
+    accumulatedMm += ds;
+  }
+  if (lapTrace.size() < 3 || accumulatedMm < 0.95 * lapLengthMm) {
+    return;
+  }
+
+  speedPlanDistanceMm.assign(lapTrace.size(), 0.0);
+  for (size_t i = 1; i < lapTrace.size(); ++i) {
+    const double ds = std::hypot(
+        lapTrace[i].xMm - lapTrace[i - 1].xMm,
+        lapTrace[i].yMm - lapTrace[i - 1].yMm);
+    speedPlanDistanceMm[i] = speedPlanDistanceMm[i - 1] + ds;
+  }
+
+  const double stepMm = speedPlanDistanceMm.size() > 1
+                            ? std::max(speedPlanDistanceMm.back() / (speedPlanDistanceMm.size() - 1), 1.0)
+                            : 10.0;
+  speedPlanSegmentTypes = classifyOdometrySegmentTypes(lapTrace, stepMm);
+
+  const double maxVelocityMmS = std::max(params.vehicleMaxVelocityMmS, 0.0);
+  const double curveVelocityMmS = std::clamp(params.desiredVelocityMmS, 0.0, maxVelocityMmS);
+  std::vector<double> velocityLimitMmS(lapTrace.size(), maxVelocityMmS);
+  for (size_t i = 0; i < lapTrace.size(); ++i) {
+    const bool leftCurve = (i > 0 && speedPlanSegmentTypes[i - 1] != 0);
+    const bool rightCurve = (i + 1 < lapTrace.size() && speedPlanSegmentTypes[i] != 0);
+    if (leftCurve || rightCurve) {
+      velocityLimitMmS[i] = curveVelocityMmS;
+    }
+  }
+
+  const double accelMmSS = std::max(params.accelerationMmSS, 1e-6);
+  speedPlanVelocityMmS.assign(lapTrace.size(), 0.0);
+  speedPlanVelocityMmS[0] = std::min(curveVelocityMmS, velocityLimitMmS[0]);
+  for (size_t i = 1; i < lapTrace.size(); ++i) {
+    const double ds = std::max(speedPlanDistanceMm[i] - speedPlanDistanceMm[i - 1], 0.0);
+    const double reachable = std::sqrt(std::max(
+        0.0, speedPlanVelocityMmS[i - 1] * speedPlanVelocityMmS[i - 1] + 2.0 * accelMmSS * ds));
+    speedPlanVelocityMmS[i] = std::min(velocityLimitMmS[i], reachable);
+  }
+
+  const double endVelocityTargetMmS = speedPlanVelocityMmS[0];
+  speedPlanVelocityMmS.back() =
+      std::min(speedPlanVelocityMmS.back(), std::min(velocityLimitMmS.back(), endVelocityTargetMmS));
+  for (size_t i = lapTrace.size() - 1; i > 0; --i) {
+    const double ds = std::max(speedPlanDistanceMm[i] - speedPlanDistanceMm[i - 1], 0.0);
+    const double reachable = std::sqrt(std::max(
+        0.0, speedPlanVelocityMmS[i] * speedPlanVelocityMmS[i] + 2.0 * accelMmSS * ds));
+    speedPlanVelocityMmS[i - 1] =
+        std::min(velocityLimitMmS[i - 1], std::min(speedPlanVelocityMmS[i - 1], reachable));
+  }
+  for (size_t i = 1; i < lapTrace.size(); ++i) {
+    const double ds = std::max(speedPlanDistanceMm[i] - speedPlanDistanceMm[i - 1], 0.0);
+    const double reachable = std::sqrt(std::max(
+        0.0, speedPlanVelocityMmS[i - 1] * speedPlanVelocityMmS[i - 1] + 2.0 * accelMmSS * ds));
+    speedPlanVelocityMmS[i] =
+        std::min(velocityLimitMmS[i], std::min(speedPlanVelocityMmS[i], reachable));
+  }
+
+  speedPlanReady = true;
+}
+
 void Run::publishOdometry() {
   if (!params.wsEnabled) {
     return;
@@ -605,6 +713,31 @@ void Run::publishOdometry() {
       msg << ',';
     }
     msg << odometrySegmentTypes[i];
+  }
+  msg << "],";
+  msg << "\"speedPlanReady\":" << (speedPlanReady ? "true" : "false") << ',';
+  msg << "\"speedPlanDistanceMm\":[";
+  for (size_t i = 0; i < speedPlanDistanceMm.size(); ++i) {
+    if (i != 0) {
+      msg << ',';
+    }
+    msg << speedPlanDistanceMm[i];
+  }
+  msg << "],";
+  msg << "\"speedPlanVelocityMmS\":[";
+  for (size_t i = 0; i < speedPlanVelocityMmS.size(); ++i) {
+    if (i != 0) {
+      msg << ',';
+    }
+    msg << speedPlanVelocityMmS[i];
+  }
+  msg << "],";
+  msg << "\"speedPlanSegmentTypes\":[";
+  for (size_t i = 0; i < speedPlanSegmentTypes.size(); ++i) {
+    if (i != 0) {
+      msg << ',';
+    }
+    msg << speedPlanSegmentTypes[i];
   }
   msg << "]}";
   if (!wsClient.sendText(msg.str())) {
