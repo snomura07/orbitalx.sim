@@ -235,6 +235,7 @@ int Run::run() {
   speedPlanDistanceMm.clear();
   speedPlanVelocityMmS.clear();
   speedPlanSegmentTypes.clear();
+  desiredVelocityInputMmS = params.desiredVelocityMmS;
   if (options.odometryTraceMode) {
     odometryTracePoints.push_back(state.pose);
     nextOdometrySampleDistanceMm = 10.0;
@@ -252,13 +253,18 @@ int Run::run() {
     updateSensors();
     updateLapCounter();
     maybeBuildSpeedPlanFromFirstLap();
-    if (options.odometryTraceMode && lapCount > 1) {
-      gKeepRunning = 0;
+    if (options.odometryTraceMode && lapCount > 2) {
+      break;
     }
 
+    desiredVelocityInputMmS = params.desiredVelocityMmS;
+    if (options.odometryTraceMode && speedPlanReady && lapCount >= 1) {
+      const double courseProgressMm = computeCourseProgressMm();
+      desiredVelocityInputMmS = sampleSpeedPlanVelocityMmS(courseProgressMm);
+    }
     const double measuredLinePositionMm = lineReading.detected ? lineReading.xHatMm : 0.0;
     driveCommand = cpu.updateDriveCommand(
-        params.desiredVelocityMmS, measuredLinePositionMm, lineReading.detected, dtS);
+        desiredVelocityInputMmS, measuredLinePositionMm, lineReading.detected, dtS);
     applyDriveCommand(driveCommand);
     state.lateralErrorMm = cpu.lastLineErrorMm();
     state.velocityErrorMmS = cpu.lastVelocityErrorMmS();
@@ -508,6 +514,41 @@ double Run::computeCourseProgressMm() const {
   return sMm;
 }
 
+double Run::sampleSpeedPlanVelocityMmS(double distanceMm) const {
+  if (!speedPlanReady || speedPlanDistanceMm.empty() || speedPlanVelocityMmS.empty()) {
+    return params.desiredVelocityMmS;
+  }
+  if (speedPlanDistanceMm.size() != speedPlanVelocityMmS.size()) {
+    return params.desiredVelocityMmS;
+  }
+
+  const double maxDistanceMm = speedPlanDistanceMm.back();
+  if (maxDistanceMm <= 1e-9) {
+    return speedPlanVelocityMmS.front();
+  }
+  double sMm = std::fmod(distanceMm, maxDistanceMm);
+  if (sMm < 0.0) {
+    sMm += maxDistanceMm;
+  }
+
+  const auto it = std::lower_bound(speedPlanDistanceMm.begin(), speedPlanDistanceMm.end(), sMm);
+  if (it == speedPlanDistanceMm.begin()) {
+    return speedPlanVelocityMmS.front();
+  }
+  if (it == speedPlanDistanceMm.end()) {
+    return speedPlanVelocityMmS.back();
+  }
+  const size_t i1 = static_cast<size_t>(std::distance(speedPlanDistanceMm.begin(), it));
+  const size_t i0 = i1 - 1;
+  const double s0 = speedPlanDistanceMm[i0];
+  const double s1 = speedPlanDistanceMm[i1];
+  const double v0 = speedPlanVelocityMmS[i0];
+  const double v1 = speedPlanVelocityMmS[i1];
+  const double denom = std::max(s1 - s0, 1e-9);
+  const double t = std::clamp((sMm - s0) / denom, 0.0, 1.0);
+  return v0 + (v1 - v0) * t;
+}
+
 void Run::maybeRecordOdometryTracePose() {
   if (!options.odometryTraceMode) {
     return;
@@ -636,7 +677,7 @@ void Run::publishOdometry() {
   msg << "\"velocity\":" << state.vMmS << ',';
   msg << "\"omega\":" << state.omegaRadS << ',';
   msg << "\"desiredVelocity\":" << cpu.desiredVelocityMmS() << ',';
-  msg << "\"desiredVelocityInput\":" << params.desiredVelocityMmS << ',';
+  msg << "\"desiredVelocityInput\":" << desiredVelocityInputMmS << ',';
   msg << "\"batterySoc\":" << batterySensor.readSocPercent() << ',';
   msg << "\"batteryV\":" << state.vbatV << ',';
   msg << "\"lineDetected\":" << (lineReading.detected ? "true" : "false") << ',';
