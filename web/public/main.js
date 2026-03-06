@@ -31,6 +31,10 @@ const odometryCanvas = document.getElementById("odometryChart");
 const odometryCtx = odometryCanvas.getContext("2d");
 const speedPlanCanvas = document.getElementById("speedPlanChart");
 const speedPlanCtx = speedPlanCanvas.getContext("2d");
+const velocityGaugeCanvas = document.getElementById("velocityGauge");
+const velocityGaugeCtx = velocityGaugeCanvas.getContext("2d");
+const omegaGaugeCanvas = document.getElementById("omegaGauge");
+const omegaGaugeCtx = omegaGaugeCanvas.getContext("2d");
 const vehicleSprite = new Image();
 let vehicleSpriteReady = false;
 vehicleSprite.onload = () => {
@@ -486,6 +490,262 @@ function drawSpeedPlanChart() {
   speedPlanCtx.stroke();
 }
 
+function drawArcSegment(context, cx, cy, radius, lineWidth, start, end, gradient) {
+  context.beginPath();
+  context.lineWidth = lineWidth;
+  context.lineCap = "round";
+  context.strokeStyle = gradient;
+  context.arc(cx, cy, radius, start, end, end < start);
+  context.stroke();
+}
+
+function drawCircularGauge(context, canvas, config) {
+  resizeCanvasToDisplaySize(canvas, context);
+  const width = canvas.clientWidth;
+  const height = canvas.clientHeight;
+  context.clearRect(0, 0, width, height);
+
+  const cx = width * 0.5;
+  const cy = height * 0.66;
+  const radius = Math.max(34, Math.min(width * 0.38, height * 0.46));
+  const lineWidth = Math.max(10, radius * 0.2);
+  const startAngle = Math.PI * 0.75;
+  const sweep = Math.PI * 1.5;
+  const endAngle = startAngle + sweep;
+  const range = Math.max(config.max - config.min, 1e-6);
+  const toAngle = (v) => startAngle + ((v - config.min) / range) * sweep;
+  const clamped = Math.max(config.min, Math.min(config.max, config.value));
+
+  context.fillStyle = "#f8fafc";
+  context.fillRect(0, 0, width, height);
+
+  context.beginPath();
+  context.lineWidth = lineWidth;
+  context.lineCap = "round";
+  context.strokeStyle = "#dbe6ef";
+  context.arc(cx, cy, radius, startAngle, endAngle, false);
+  context.stroke();
+
+  if (config.min < 0 && config.max > 0) {
+    const zero = toAngle(0);
+    const positiveGradient = context.createLinearGradient(cx - radius, cy, cx + radius, cy);
+    positiveGradient.addColorStop(0.0, "#3b82f6");
+    positiveGradient.addColorStop(0.55, "#22d3ee");
+    positiveGradient.addColorStop(0.8, "#f59e0b");
+    positiveGradient.addColorStop(1.0, "#ef4444");
+    const negativeGradient = context.createLinearGradient(cx - radius, cy, cx + radius, cy);
+    negativeGradient.addColorStop(0.0, "#2563eb");
+    negativeGradient.addColorStop(0.45, "#38bdf8");
+    negativeGradient.addColorStop(1.0, "#93c5fd");
+    if (clamped >= 0) {
+      drawArcSegment(context, cx, cy, radius, lineWidth, zero, toAngle(clamped), positiveGradient);
+    } else {
+      drawArcSegment(context, cx, cy, radius, lineWidth, zero, toAngle(clamped), negativeGradient);
+    }
+    context.beginPath();
+    context.strokeStyle = "#64748b";
+    context.lineWidth = 2;
+    const zx = cx + Math.cos(zero) * (radius + lineWidth * 0.7);
+    const zy = cy + Math.sin(zero) * (radius + lineWidth * 0.7);
+    const zix = cx + Math.cos(zero) * (radius - lineWidth * 0.8);
+    const ziy = cy + Math.sin(zero) * (radius - lineWidth * 0.8);
+    context.moveTo(zix, ziy);
+    context.lineTo(zx, zy);
+    context.stroke();
+  } else {
+    const activeGradient = context.createLinearGradient(cx - radius, cy, cx + radius, cy);
+    activeGradient.addColorStop(0.0, "#2563eb");
+    activeGradient.addColorStop(0.55, "#22d3ee");
+    activeGradient.addColorStop(0.78, "#f59e0b");
+    activeGradient.addColorStop(1.0, "#ef4444");
+    drawArcSegment(context, cx, cy, radius, lineWidth, startAngle, toAngle(clamped), activeGradient);
+  }
+
+  if (Number.isFinite(config.reference)) {
+    const ref = Math.max(config.min, Math.min(config.max, Number(config.reference)));
+    const refAngle = toAngle(ref);
+    context.beginPath();
+    context.strokeStyle = "#0f172a";
+    context.lineWidth = 2;
+    const ox = cx + Math.cos(refAngle) * (radius + lineWidth * 0.65);
+    const oy = cy + Math.sin(refAngle) * (radius + lineWidth * 0.65);
+    const ix = cx + Math.cos(refAngle) * (radius - lineWidth * 0.9);
+    const iy = cy + Math.sin(refAngle) * (radius - lineWidth * 0.9);
+    context.moveTo(ix, iy);
+    context.lineTo(ox, oy);
+    context.stroke();
+  }
+
+  context.font = "12px IBM Plex Sans, sans-serif";
+  context.fillStyle = "#64748b";
+  context.textAlign = "center";
+  context.textBaseline = "bottom";
+  context.fillText(config.label, cx, cy - radius - lineWidth * 1.1);
+
+  context.font = "700 24px IBM Plex Sans, sans-serif";
+  context.fillStyle = "#0f172a";
+  context.textBaseline = "middle";
+  context.fillText(config.valueText, cx, cy - lineWidth * 0.2);
+
+  context.font = "12px IBM Plex Sans, sans-serif";
+  context.fillStyle = "#64748b";
+  context.textBaseline = "top";
+  context.fillText(config.unitText, cx, cy + lineWidth * 0.5);
+
+  context.font = "11px IBM Plex Sans, sans-serif";
+  context.fillStyle = "#64748b";
+  context.textBaseline = "middle";
+  context.textAlign = "left";
+  context.fillText(config.minText, cx - radius, cy + 6);
+  context.textAlign = "right";
+  context.fillText(config.maxText, cx + radius, cy + 6);
+}
+
+function drawVelocityGauge(sample) {
+  const maxVelocityMmS = Math.max(1, Number(sample?.params?.vehicle_max_velocity_mm_s ?? 1));
+  const value = Math.abs(Number(sample?.velocity ?? 0));
+  const desired = Math.abs(Number(sample?.desiredVelocity ?? 0));
+  drawCircularGauge(velocityGaugeCtx, velocityGaugeCanvas, {
+    label: "Velocity",
+    unitText: "mm/s",
+    value,
+    valueText: value.toFixed(0),
+    min: 0,
+    max: maxVelocityMmS,
+    minText: "0",
+    maxText: `${maxVelocityMmS.toFixed(0)}`,
+    reference: desired,
+  });
+}
+
+function drawOmegaGauge(sample) {
+  const maxVelocityMmS = Math.max(1, Number(sample?.params?.vehicle_max_velocity_mm_s ?? 1));
+  const wheelTreadMm = Number(sample?.params?.wheel_tread_mm ?? 0);
+  const omegaFromModel =
+    wheelTreadMm > 1 ? (2 * (maxVelocityMmS / 1000.0)) / (wheelTreadMm / 1000.0) : 0;
+  const observed = Math.abs(Number(sample?.omega ?? 0));
+  const omegaAbsMax = Math.max(0.5, omegaFromModel, observed * 1.2);
+  const value = Number(sample?.omega ?? 0);
+  const ref = Number(sample?.omegaRef ?? 0);
+
+  resizeCanvasToDisplaySize(omegaGaugeCanvas, omegaGaugeCtx);
+  const context = omegaGaugeCtx;
+  const width = omegaGaugeCanvas.clientWidth;
+  const height = omegaGaugeCanvas.clientHeight;
+  context.clearRect(0, 0, width, height);
+  context.fillStyle = "#f8fafc";
+  context.fillRect(0, 0, width, height);
+
+  const cx = width * 0.5;
+  const cy = height * 0.8;
+  const radius = Math.max(32, Math.min(width * 0.36, height * 0.5));
+  const lineWidth = Math.max(10, radius * 0.2);
+  const leftAngle = Math.PI;
+  const zeroAngle = Math.PI * 1.5;
+  const rightAngle = Math.PI * 2.0;
+  const clampMag = (v) => Math.max(0, Math.min(1, Math.abs(v) / omegaAbsMax));
+  const toAngle = (v) => {
+    const ratio = Math.max(-1, Math.min(1, v / omegaAbsMax));
+    return zeroAngle + ratio * (Math.PI * 0.5);
+  };
+
+  context.beginPath();
+  context.lineWidth = lineWidth;
+  context.lineCap = "round";
+  context.strokeStyle = "#dbe6ef";
+  context.arc(cx, cy, radius, leftAngle, rightAngle, false);
+  context.stroke();
+
+  if (value < -1e-4) {
+    const grad = context.createLinearGradient(cx - radius, cy, cx, cy);
+    grad.addColorStop(0, "#1d4ed8");
+    grad.addColorStop(1, "#38bdf8");
+    drawArcSegment(
+      context,
+      cx,
+      cy,
+      radius,
+      lineWidth,
+      zeroAngle,
+      zeroAngle - (Math.PI * 0.5) * clampMag(value),
+      grad,
+    );
+  } else if (value > 1e-4) {
+    const grad = context.createLinearGradient(cx, cy, cx + radius, cy);
+    grad.addColorStop(0, "#f59e0b");
+    grad.addColorStop(1, "#ef4444");
+    drawArcSegment(
+      context,
+      cx,
+      cy,
+      radius,
+      lineWidth,
+      zeroAngle,
+      zeroAngle + (Math.PI * 0.5) * clampMag(value),
+      grad,
+    );
+  }
+
+  context.beginPath();
+  context.strokeStyle = "#0f172a";
+  context.lineWidth = 2;
+  const zix = cx + Math.cos(zeroAngle) * (radius - lineWidth * 0.9);
+  const ziy = cy + Math.sin(zeroAngle) * (radius - lineWidth * 0.9);
+  const zox = cx + Math.cos(zeroAngle) * (radius + lineWidth * 0.7);
+  const zoy = cy + Math.sin(zeroAngle) * (radius + lineWidth * 0.7);
+  context.moveTo(zix, ziy);
+  context.lineTo(zox, zoy);
+  context.stroke();
+
+  if (Number.isFinite(ref)) {
+    const a = toAngle(ref);
+    const ix = cx + Math.cos(a) * (radius - lineWidth * 0.95);
+    const iy = cy + Math.sin(a) * (radius - lineWidth * 0.95);
+    const ox = cx + Math.cos(a) * (radius + lineWidth * 0.72);
+    const oy = cy + Math.sin(a) * (radius + lineWidth * 0.72);
+    context.beginPath();
+    context.strokeStyle = "#111827";
+    context.lineWidth = 2;
+    context.moveTo(ix, iy);
+    context.lineTo(ox, oy);
+    context.stroke();
+  }
+
+  context.font = "12px IBM Plex Sans, sans-serif";
+  context.fillStyle = "#64748b";
+  context.textAlign = "center";
+  context.textBaseline = "middle";
+  context.fillText("Angular Velocity", cx, cy - radius - lineWidth * 1.0);
+
+  context.font = "700 24px IBM Plex Sans, sans-serif";
+  context.fillStyle = "#0f172a";
+  context.textBaseline = "middle";
+  context.fillText(value.toFixed(2), cx, cy - radius * 0.35);
+
+  context.font = "12px IBM Plex Sans, sans-serif";
+  context.fillStyle = "#64748b";
+  context.textBaseline = "middle";
+  context.fillText("rad/s", cx, cy - radius * 0.35 + 20);
+
+  context.font = "11px IBM Plex Sans, sans-serif";
+  context.fillStyle = "#64748b";
+  context.textBaseline = "middle";
+  context.textAlign = "left";
+  context.fillText(`-${omegaAbsMax.toFixed(1)}`, cx - radius, cy + 8);
+  context.textAlign = "right";
+  context.fillText(`+${omegaAbsMax.toFixed(1)}`, cx + radius, cy + 8);
+  context.textAlign = "center";
+  context.fillText("0", cx, cy - radius - 8);
+}
+
+function drawLiveGauges(sample = history.length ? history[history.length - 1] : null) {
+  if (!sample) {
+    return;
+  }
+  drawVelocityGauge(sample);
+  drawOmegaGauge(sample);
+}
+
 function drawOmegaChart(windowSec) {
   const now = history.length ? history[history.length - 1].ts : 0;
   const startTs = now - windowSec;
@@ -680,6 +940,7 @@ function render(data) {
   drawPoseChart(Number(windowSecSelect.value));
   drawOdometryChart();
   drawSpeedPlanChart();
+  drawLiveGauges(data);
 }
 
 windowSecSelect.addEventListener("change", () => {
@@ -689,6 +950,7 @@ windowSecSelect.addEventListener("change", () => {
   drawPoseChart(Number(windowSecSelect.value));
   drawOdometryChart();
   drawSpeedPlanChart();
+  drawLiveGauges();
 });
 
 [xMinInput, xMaxInput, yMinInput, yMaxInput].forEach((el) => {
@@ -702,6 +964,7 @@ window.addEventListener("resize", () => {
   drawPoseChart(Number(windowSecSelect.value));
   drawOdometryChart();
   drawSpeedPlanChart();
+  drawLiveGauges();
 });
 
 ws.addEventListener("message", (ev) => {
