@@ -7,7 +7,7 @@ services:
     volumes:
       - ../build:/work/build
       - ../src:/work/src
-      - ../config:/work/config
+      - ../config:/usr/local/config:rw
       - ../CMakeLists.txt:/work/CMakeLists.txt
 
       - ../bin:/usr/local/bin

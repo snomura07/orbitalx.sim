@@ -1,5 +1,6 @@
 #include "app/ConfigLoader.h"
 
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <string>
@@ -120,6 +121,16 @@ SimParams ConfigLoader::load(const std::string& path) {
       }
     } catch (...) {
       std::cerr << "invalid config value: " << line << '\n';
+    }
+  }
+
+  if (!params.courseFile.empty()) {
+    const std::filesystem::path coursePath(params.courseFile);
+    if (coursePath.is_relative()) {
+      const std::filesystem::path configDir = std::filesystem::path(path).parent_path();
+      if (!configDir.empty()) {
+        params.courseFile = (configDir / coursePath).lexically_normal().string();
+      }
     }
   }
 

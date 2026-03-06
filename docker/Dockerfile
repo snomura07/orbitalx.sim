@@ -5,5 +5,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     cmake \
     && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /work
+RUN mkdir -p /usr/local/config && chmod 755 /usr/local/config
 
+WORKDIR /work
