@@ -38,21 +38,10 @@ std::string resolveConfigPath(std::string configPath) {
     return configPath;
   }
 
-  const std::string kInstalledDefault = "/usr/local/config/sim_params.conf";
-  const std::string kDefault = "config/sim_params.conf";
-  const std::string kFromBuildDir = "../config/sim_params.conf";
-  if (std::filesystem::exists(kInstalledDefault)) {
-    return kInstalledDefault;
+  const std::string defaultConfigPath = "/usr/local/config/sim_params.conf";
+  if (std::filesystem::exists(defaultConfigPath)) {
+    return defaultConfigPath;
   }
-  if (std::filesystem::exists(kDefault)) {
-    return kDefault;
-  }
-  if (std::filesystem::exists(kFromBuildDir)) {
-    return kFromBuildDir;
-  }
-  return kInstalledDefault;
-}
-
 }  // namespace
 
 int main(int argc, char** argv) {
